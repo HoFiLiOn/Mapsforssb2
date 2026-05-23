@@ -66,6 +66,7 @@ init_db()
 temp_data = {}
 temp_skills = {}
 user_states = {}
+user_msg_ids = {}
 
 # === ФУНКЦИИ БД ===
 def db_execute(query, params=(), fetch=False):
@@ -137,6 +138,12 @@ def get_stats():
     revoked = db_execute("SELECT COUNT(*) FROM applications WHERE status = 'revoked'", (), True)[0][0]
     return users, total, pending, accepted, rejected, revoked
 
+def get_public_stats():
+    users = db_execute('SELECT COUNT(*) FROM users', (), True)[0][0]
+    total = db_execute('SELECT COUNT(*) FROM applications', (), True)[0][0]
+    accepted = db_execute("SELECT COUNT(*) FROM applications WHERE status = 'accepted'", (), True)[0][0]
+    return users, total, accepted
+
 def get_all_apps(status_filter=None):
     if status_filter:
         return db_execute(
@@ -178,6 +185,7 @@ def main_menu(user_id=None):
         "inline_keyboard": [
             [{"text": "📝 Подать заявку", "callback_data": "apply", "style": "primary"}],
             [{"text": "📋 Мои заявки", "callback_data": "my_apps"}],
+            [{"text": "📊 Статистика", "callback_data": "public_stats"}],
             [{"text": "ℹ️ О проекте", "callback_data": "about"}],
             [{"text": "💬 Техподдержка", "callback_data": "support"}]
         ]
@@ -225,8 +233,8 @@ def skills_menu():
             [{"text": "✅ Проверка фактов", "callback_data": "skill_facts"}],
             [{"text": "✍️ Написание текстов", "callback_data": "skill_write"}],
             [{"text": "🪲 Тестирование", "callback_data": "skill_test"}],
-            [{"text": "🌍 Перевод", "callback_data": "skill_translate"}],
-            [{"text": "🎨 Дизайн", "callback_data": "skill_design"}],
+            [{"text": "🌍 Перевод текстов", "callback_data": "skill_translate"}],
+            [{"text": "🎨 Дизайн (фотографии)", "callback_data": "skill_design"}],
             [{"text": "✅ Готово", "callback_data": "skill_done", "style": "success"}],
             [{"text": "❌ Отменить", "callback_data": "apply_cancel", "style": "danger"}]
         ]
@@ -350,14 +358,15 @@ def help_cmd(message):
         message.chat.id,
         "<b>📚 Помощь</b>\n\n"
         "<b>Команды:</b>\n"
-        "/start — главное меню\n"
-        "/help — помощь\n"
-        "/cancel — отменить анкету\n\n"
+        "/start - главное меню\n"
+        "/help - помощь\n"
+        "/cancel - отменить анкету\n\n"
         "<b>Разделы:</b>\n"
-        "📝 Подать заявку — заполнить анкету\n"
-        "📋 Мои заявки — посмотреть статус\n"
-        "ℹ️ О проекте — информация\n"
-        "💬 Техподдержка — ответы на вопросы\n\n"
+        "📝 Подать заявку - заполнить анкету\n"
+        "📋 Мои заявки - посмотреть статус\n"
+        "📊 Статистика - сколько уже заявок\n"
+        "ℹ️ О проекте - информация\n"
+        "💬 Техподдержка - ответы на вопросы\n\n"
         "<b>Создатель:</b> @HoFiLiOnclkc",
         main_menu(message.from_user.id)
     )
@@ -368,6 +377,7 @@ def cancel_cmd(message):
     temp_data.pop(user_id, None)
     temp_skills.pop(user_id, None)
     user_states.pop(user_id, None)
+    user_msg_ids.pop(user_id, None)
     send_message(
         message.chat.id,
         "❌ Анкета отменена.",
@@ -394,6 +404,21 @@ def agree_no(call):
         "Бот недоступен. Напиши /start чтобы попробовать снова."
     )
 
+# === ПУБЛИЧНАЯ СТАТИСТИКА ===
+@bot.callback_query_handler(func=lambda call: call.data == "public_stats")
+def public_stats(call):
+    users, total, accepted = get_public_stats()
+    
+    edit_message(
+        call.message.chat.id, call.message.message_id,
+        f"<b>📊 Статистика проекта</b>\n\n"
+        f"👥 Пользователей бота: <b>{users}</b>\n"
+        f"📩 Всего подано заявок: <b>{total}</b>\n"
+        f"✅ Принято в команду: <b>{accepted}</b>\n\n"
+        f"<i>Хочешь присоединиться? Жми «📝 Подать заявку»!</i>",
+        main_menu(call.from_user.id)
+    )
+
 # === ТЕХПОДДЕРЖКА ===
 @bot.callback_query_handler(func=lambda call: call.data == "support")
 def support(call):
@@ -409,15 +434,15 @@ support_answers = {
              "Нажми кнопку «📝 Подать заявку» в главном меню и ответь на вопросы бота.\n\n"
              "Некоторые поля (возраст, контакт, о себе) можно пропустить.",
     "sup_2": "<b>❓ Что такое навыки?</b>\n\n"
-             "Навыки — это то, что ты умеешь и чем хочешь помогать проекту.\n\n"
-             "Например: поиск информации, тестирование, написание текстов, перевод, дизайн.",
+             "Навыки - это то, что ты умеешь и чем хочешь помогать проекту.\n\n"
+             "Например: поиск информации, тестирование, написание текстов или их перевод, дизайн.",
     "sup_3": "<b>❓ Как отозвать заявку?</b>\n\n"
              "1. Зайди в раздел «📋 Мои заявки»\n"
              "2. Выбери нужную заявку\n"
              "3. Нажми «🔄 Отозвать заявку»\n\n"
              "После отзыва ты сможешь подать новую заявку.",
     "sup_4": "<b>❓ Кто создатель?</b>\n\n"
-             "Создатель проекта SSB2 Archives — @HoFiLiOnclkc\n\n"
+             "Создатель проекта SSB2 Archives: @HoFiLiOnclkc\n\n"
              "Ты можешь написать ему лично, нажав кнопку «💬 Написать владельцу»."
 }
 
@@ -435,14 +460,14 @@ def about(call):
     edit_message(
         call.message.chat.id, call.message.message_id,
         "<b>ℹ️ О проекте</b>\n\n"
-        "<b>SSB2 Archives</b> — неофициальный сайт-архив по игре Simple Sandbox 2.\n\n"
+        "<b>SSB2 Archives</b> - это неофициальный сайт-архив по игре Simple Sandbox 2.\n\n"
         "<b>Кого ищем:</b>\n"
-        "🔍 Поиск информации\n"
-        "✅ Проверка фактов\n"
-        "✍️ Написание текстов\n"
-        "🪲 Тестирование\n"
-        "🌍 Перевод\n"
-        "🎨 Дизайн\n\n"
+        "🔍 Людей которые смогут находить информацию\n"
+        "✅ Людей для проверки информации\n"
+        "✍️ Людей для написание текстов\n"
+        "🪲 Людей для тестирований\n"
+        "🌍 Людей для перевода\n"
+        "🎨 Ну и людей для дизайна фотографий и прочего) \n\n"
         "<b>Создатель:</b> @HoFiLiOnclkc",
         main_menu(call.from_user.id)
     )
@@ -468,6 +493,7 @@ def apply_start(call):
         "<b>📝 Заявка в команду</b>\n\nКак тебя зовут (ник или имя)?",
         parse_mode="HTML"
     )
+    user_msg_ids[user_id] = msg.message_id
     bot.register_next_step_handler(msg, get_name)
 
 # === ШАГИ АНКЕТЫ ===
@@ -482,13 +508,21 @@ def get_name(message):
             [[InlineKeyboardButton("⏭️ Пропустить", callback_data="skip_age")]]
         )
     )
+    user_msg_ids[user_id] = msg.message_id
     bot.register_next_step_handler(msg, get_age)
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_age")
 def skip_age(call):
     user_id = call.from_user.id
     temp_data[user_id]['age'] = "Не указано"
-    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    try:
+        bot.delete_message(call.message.chat.id, user_msg_ids.get(user_id, call.message.message_id))
+    except Exception:
+        pass
+    
+    # Очищаем предыдущий handler, чтобы не было двойного срабатывания
+    bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
     
     msg = bot.send_message(
         call.message.chat.id,
@@ -497,6 +531,7 @@ def skip_age(call):
             [[InlineKeyboardButton("⏭️ Пропустить", callback_data="skip_contact")]]
         )
     )
+    user_msg_ids[user_id] = msg.message_id
     bot.register_next_step_handler(msg, get_contact)
 
 def get_age(message):
@@ -510,13 +545,21 @@ def get_age(message):
             [[InlineKeyboardButton("⏭️ Пропустить", callback_data="skip_contact")]]
         )
     )
+    user_msg_ids[user_id] = msg.message_id
     bot.register_next_step_handler(msg, get_contact)
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_contact")
 def skip_contact(call):
     user_id = call.from_user.id
     temp_data[user_id]['contact'] = f"@{call.from_user.username}" if call.from_user.username else "Не указано"
-    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    try:
+        bot.delete_message(call.message.chat.id, user_msg_ids.get(user_id, call.message.message_id))
+    except Exception:
+        pass
+    
+    # Очищаем предыдущий handler
+    bot.clear_step_handler_by_chat_id(chat_id=call.message.chat.id)
     
     send_message(
         call.message.chat.id,
@@ -566,7 +609,7 @@ def skill_done(call):
     
     edit_message(
         call.message.chat.id, call.message.message_id,
-        "<b>🎮 Опыт в SSB2</b>\n\nНапиши, как давно играешь и в каких режимах:"
+        "<b>🎮 Опыт в SSB2</b>\n\nНапиши, как давно играешь и в каких типах серверов (рп, дчх и т,д) :"
     )
     bot.register_next_step_handler(call.message, get_experience)
 
@@ -575,6 +618,7 @@ def apply_cancel(call):
     user_id = call.from_user.id
     temp_data.pop(user_id, None)
     temp_skills.pop(user_id, None)
+    user_msg_ids.pop(user_id, None)
     
     edit_message(
         call.message.chat.id, call.message.message_id,
@@ -594,13 +638,19 @@ def get_experience(message):
         ),
         parse_mode="HTML"
     )
+    user_msg_ids[user_id] = msg.message_id
     bot.register_next_step_handler(msg, get_about)
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_about")
 def skip_about(call):
     user_id = call.from_user.id
     temp_data[user_id]['about'] = "Не указано"
-    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    try:
+        bot.delete_message(call.message.chat.id, user_msg_ids.get(user_id, call.message.message_id))
+    except Exception:
+        pass
+    
     finish_application(call.message, user_id)
 
 def get_about(message):
@@ -640,6 +690,7 @@ def finish_application(message, user_id):
         set_reaction(ADMIN_ID, admin_msg_id, "👍")
     
     temp_data.pop(user_id, None)
+    user_msg_ids.pop(user_id, None)
     
     send_message(
         message.chat.id,
