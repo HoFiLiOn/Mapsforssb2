@@ -1,64 +1,52 @@
 import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 TOKEN = "8786399001:AAF2GODnsIrCluHiFPH8XYC8uVMuPrDiSss"
 ADMIN_ID = 7040677455
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+# Состояния
+NAME, AGE, CONTACT, SKILLS, EXPERIENCE, ABOUT = range(6)
 
-# Хранилище пользователей
-users = {}  # {user_id: {"name": ..., "username": ..., "first_date": ...}}
-applications = []  # [{user_id, name, age, contact, skills, experience, about, date, status}]
-
-class Form(StatesGroup):
-    name = State()
-    age = State()
-    contact = State()
-    skills = State()
-    experience = State()
-    about = State()
+# Хранилище
+users = {}
+applications = []
+temp_skills = {}
 
 # Клавиатуры
 def main_menu():
-    kb = InlineKeyboardBuilder()
-    kb.button(text="📝 Подать заявку", callback_data="apply")
-    kb.button(text="ℹ️ О проекте", callback_data="about")
-    kb.adjust(1)
-    return kb.as_markup()
+    keyboard = [
+        [InlineKeyboardButton("📝 Подать заявку", callback_data="apply")],
+        [InlineKeyboardButton("ℹ️ О проекте", callback_data="about")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def admin_menu():
-    kb = InlineKeyboardBuilder()
-    kb.button(text="📊 Статистика", callback_data="admin_stats")
-    kb.button(text="📋 Заявки", callback_data="admin_applications")
-    kb.button(text="👥 Пользователи", callback_data="admin_users")
-    kb.button(text="📤 Экспорт", callback_data="admin_export")
-    kb.adjust(2)
-    return kb.as_markup()
+    keyboard = [
+        [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
+         InlineKeyboardButton("📋 Заявки", callback_data="admin_apps")],
+        [InlineKeyboardButton("👥 Пользователи", callback_data="admin_users"),
+         InlineKeyboardButton("📤 Экспорт", callback_data="admin_export")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-def skills_keyboard():
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🔍 Поиск информации", callback_data="skill_search")
-    kb.button(text="✅ Проверка фактов", callback_data="skill_facts")
-    kb.button(text="✍️ Написание текстов", callback_data="skill_write")
-    kb.button(text="🪲 Тестирование", callback_data="skill_test")
-    kb.button(text="🌍 Перевод", callback_data="skill_translate")
-    kb.button(text="🎨 Дизайн", callback_data="skill_design")
-    kb.button(text="Готово ✅", callback_data="skill_done")
-    kb.adjust(2)
-    return kb.as_markup()
+def skills_menu(user_id):
+    keyboard = [
+        [InlineKeyboardButton("🔍 Поиск информации", callback_data="skill_search")],
+        [InlineKeyboardButton("✅ Проверка фактов", callback_data="skill_facts")],
+        [InlineKeyboardButton("✍️ Написание текстов", callback_data="skill_write")],
+        [InlineKeyboardButton("🪲 Тестирование", callback_data="skill_test")],
+        [InlineKeyboardButton("🌍 Перевод", callback_data="skill_translate")],
+        [InlineKeyboardButton("🎨 Дизайн", callback_data="skill_design")],
+        [InlineKeyboardButton("Готово ✅", callback_data="skill_done")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 # Старт
-@dp.message(Command("start"))
-async def start(message: types.Message):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.full_name
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or update.effective_user.full_name
     
     if user_id not in users:
         users[user_id] = {
@@ -66,8 +54,8 @@ async def start(message: types.Message):
             "first_date": datetime.now().strftime("%d.%m.%Y %H:%M")
         }
     
-    await message.answer(
-        f"<b>👋 Привет, {message.from_user.full_name}!</b>\n\n"
+    await update.message.reply_text(
+        f"<b>👋 Привет, {update.effective_user.full_name}!</b>\n\n"
         "Я бот для набора в команду <b>SSB2 Archives</b>.\n"
         "Помогай проекту выбираться из бета-версии!",
         reply_markup=main_menu(),
@@ -75,9 +63,10 @@ async def start(message: types.Message):
     )
 
 # О проекте
-@dp.callback_query(lambda c: c.data == "about")
-async def about(callback: types.CallbackQuery):
-    await callback.message.edit_text(
+async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.message.edit_text(
         "<b>ℹ️ О проекте</b>\n\n"
         "<b>SSB2 Archives</b> — неофициальный сайт-архив по игре Simple Sandbox 2.\n\n"
         "<b>Что ищем:</b>\n"
@@ -91,46 +80,45 @@ async def about(callback: types.CallbackQuery):
     )
 
 # Начало анкеты
-@dp.callback_query(lambda c: c.data == "apply")
-async def apply_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.message.answer(
+async def apply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.message.delete()
+    await query.message.answer(
         "<b>📝 Заявка в команду</b>\n\nДавай заполним анкету. Как тебя зовут (ник или имя)?",
         parse_mode="HTML"
     )
-    await state.set_state(Form.name)
+    return NAME
 
 # Имя
-@dp.message(Form.name)
-async def get_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Сколько тебе лет?")
-    await state.set_state(Form.age)
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["name"] = update.message.text
+    await update.message.reply_text("Сколько тебе лет?")
+    return AGE
 
 # Возраст
-@dp.message(Form.age)
-async def get_age(message: types.Message, state: FSMContext):
-    await state.update_data(age=message.text)
-    await message.answer("Твой Telegram для связи (или Discord)?")
-    await state.set_state(Form.contact)
+async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["age"] = update.message.text
+    await update.message.reply_text("Твой Telegram для связи (или Discord)?")
+    return CONTACT
 
 # Контакт
-@dp.message(Form.contact)
-async def get_contact(message: types.Message, state: FSMContext):
-    await state.update_data(contact=message.text)
-    await message.answer(
+async def get_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["contact"] = update.message.text
+    temp_skills[update.effective_user.id] = []
+    await update.message.reply_text(
         "<b>Что умеешь?</b>\nВыбери навыки (можно несколько):",
-        reply_markup=skills_keyboard(),
+        reply_markup=skills_menu(update.effective_user.id),
         parse_mode="HTML"
     )
-    await state.set_state(Form.skills)
+    return SKILLS
 
-# Навыки (обработка callback)
-selected_skills = {}
-
-@dp.callback_query(lambda c: c.data.startswith("skill_") and c.data != "skill_done")
-async def skill_select(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+# Навыки
+async def skill_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    
     skill_map = {
         "skill_search": "🔍 Поиск информации",
         "skill_facts": "✅ Проверка фактов",
@@ -140,47 +128,42 @@ async def skill_select(callback: types.CallbackQuery):
         "skill_design": "🎨 Дизайн"
     }
     
-    skill = skill_map.get(callback.data)
-    if user_id not in selected_skills:
-        selected_skills[user_id] = []
-    
-    if skill in selected_skills[user_id]:
-        selected_skills[user_id].remove(skill)
+    skill = skill_map.get(query.data)
+    if skill in temp_skills.get(user_id, []):
+        temp_skills[user_id].remove(skill)
     else:
-        selected_skills[user_id].append(skill)
+        temp_skills[user_id].append(skill)
     
-    skills_text = ", ".join(selected_skills[user_id]) if selected_skills[user_id] else "не выбраны"
-    await callback.answer(f"Выбрано: {skills_text}")
+    skills_text = ", ".join(temp_skills[user_id]) if temp_skills[user_id] else "не выбраны"
+    await query.answer(f"Выбрано: {skills_text}")
 
-@dp.callback_query(lambda c: c.data == "skill_done")
-async def skill_done(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    skills = ", ".join(selected_skills.get(user_id, []))
-    await state.update_data(skills=skills if skills else "Не выбрано")
-    selected_skills.pop(user_id, None)
+async def skill_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    context.user_data["skills"] = ", ".join(temp_skills.get(user_id, [])) or "Не выбрано"
+    temp_skills.pop(user_id, None)
     
-    await callback.message.edit_text(
+    await query.message.edit_text(
         "<b>Твой опыт в Simple Sandbox 2</b>\n\nНапиши, как давно играешь и в каких режимах:",
         parse_mode="HTML"
     )
-    await state.set_state(Form.experience)
+    return EXPERIENCE
 
 # Опыт
-@dp.message(Form.experience)
-async def get_experience(message: types.Message, state: FSMContext):
-    await state.update_data(experience=message.text)
-    await message.answer(
+async def get_experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["experience"] = update.message.text
+    await update.message.reply_text(
         "<b>Последний шаг!</b>\n\nРасскажи о себе: почему хочешь помогать, какие идеи есть для проекта?",
         parse_mode="HTML"
     )
-    await state.set_state(Form.about)
+    return ABOUT
 
 # Финал
-@dp.message(Form.about)
-async def get_about(message: types.Message, state: FSMContext):
-    await state.update_data(about=message.text)
-    data = await state.get_data()
-    user_id = message.from_user.id
+async def get_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["about"] = update.message.text
+    user_id = update.effective_user.id
+    data = context.user_data
     
     application = {
         "user_id": user_id,
@@ -195,50 +178,47 @@ async def get_about(message: types.Message, state: FSMContext):
     }
     applications.append(application)
     
-    # Формируем сообщение админу
     admin_msg = (
         f"<b>📩 НОВАЯ ЗАЯВКА</b>\n"
         f"├ <b>Имя:</b> {data['name']}\n"
         f"├ <b>Возраст:</b> {data['age']}\n"
         f"├ <b>Контакт:</b> {data['contact']}\n"
         f"├ <b>Навыки:</b> {data['skills']}\n"
-        f"├ <b>Опыт в SSB2:</b> {data['experience']}\n"
+        f"├ <b>Опыт:</b> {data['experience']}\n"
         f"├ <b>О себе:</b> {data['about']}\n"
         f"└ <b>Дата:</b> {application['date']}"
     )
     
-    # Кнопки админа
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Принять", callback_data=f"accept_{len(applications)-1}")
-    kb.button(text="❌ Отклонить", callback_data=f"reject_{len(applications)-1}")
-    kb.adjust(2)
+    idx = len(applications) - 1
+    keyboard = [
+        [InlineKeyboardButton("✅ Принять", callback_data=f"accept_{idx}"),
+         InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{idx}")]
+    ]
     
-    await bot.send_message(ADMIN_ID, admin_msg, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await context.bot.send_message(ADMIN_ID, admin_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     
-    await message.answer(
-        "<b>✅ Заявка отправлена!</b>\n\n"
-        "Я свяжусь с тобой в ближайшее время.\n"
-        "Спасибо, что хочешь помочь проекту! 🔥",
+    await update.message.reply_text(
+        "<b>✅ Заявка отправлена!</b>\n\nЯ свяжусь с тобой. Спасибо! 🔥",
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
-    await state.clear()
+    return ConversationHandler.END
 
-# Админ-команда
-@dp.message(Command("admin"))
-async def admin(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer(
-            "<b>⚙️ Админ-панель</b>",
-            reply_markup=admin_menu(),
-            parse_mode="HTML"
-        )
+# Админка
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await update.message.reply_text(
+        "<b>⚙️ Админ-панель</b>",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
+    )
 
-# Статистика
-@dp.callback_query(lambda c: c.data == "admin_stats")
-async def admin_stats(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("⛔ Нет доступа")
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        return await query.answer("⛔ Нет доступа")
+    await query.answer()
     
     total_users = len(users)
     total_apps = len(applications)
@@ -246,7 +226,7 @@ async def admin_stats(callback: types.CallbackQuery):
     accepted = sum(1 for a in applications if a["status"] == "✅ Принят")
     rejected = sum(1 for a in applications if a["status"] == "❌ Отклонён")
     
-    await callback.message.edit_text(
+    await query.message.edit_text(
         f"<b>📊 Статистика</b>\n\n"
         f"👥 Пользователей: <b>{total_users}</b>\n"
         f"📩 Заявок всего: <b>{total_apps}</b>\n"
@@ -257,44 +237,44 @@ async def admin_stats(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-# Список заявок
-@dp.callback_query(lambda c: c.data == "admin_applications")
-async def admin_applications(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("⛔ Нет доступа")
+async def admin_applications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        return await query.answer("⛔ Нет доступа")
+    await query.answer()
     
     if not applications:
-        return await callback.message.edit_text("Заявок пока нет.", reply_markup=admin_menu())
+        return await query.message.edit_text("Заявок пока нет.", reply_markup=admin_menu())
     
     text = "<b>📋 Заявки</b>\n\n"
-    for i, app in enumerate(applications[-10:]):
+    for app in applications[-10:]:
         text += f"{app['status']} | {app['name']} | {app['date']}\n"
     
-    await callback.message.edit_text(text, reply_markup=admin_menu(), parse_mode="HTML")
+    await query.message.edit_text(text, reply_markup=admin_menu(), parse_mode="HTML")
 
-# Список пользователей
-@dp.callback_query(lambda c: c.data == "admin_users")
-async def admin_users_list(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("⛔ Нет доступа")
+async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        return await query.answer("⛔ Нет доступа")
+    await query.answer()
     
     if not users:
-        return await callback.message.edit_text("Пользователей пока нет.", reply_markup=admin_menu())
+        return await query.message.edit_text("Пользователей пока нет.", reply_markup=admin_menu())
     
     text = "<b>👥 Пользователи</b>\n\n"
     for uid, data in list(users.items())[-10:]:
         text += f"• {data['username']} | {data['first_date']}\n"
     
-    await callback.message.edit_text(text, reply_markup=admin_menu(), parse_mode="HTML")
+    await query.message.edit_text(text, reply_markup=admin_menu(), parse_mode="HTML")
 
-# Экспорт
-@dp.callback_query(lambda c: c.data == "admin_export")
-async def admin_export(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("⛔ Нет доступа")
+async def admin_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        return await query.answer("⛔ Нет доступа")
+    await query.answer()
     
     if not applications:
-        return await callback.message.edit_text("Нечего экспортировать.", reply_markup=admin_menu())
+        return await query.message.edit_text("Нечего экспортировать.", reply_markup=admin_menu())
     
     text = "Имя;Возраст;Контакт;Навыки;Опыт;О себе;Дата;Статус\n"
     for app in applications:
@@ -303,34 +283,67 @@ async def admin_export(callback: types.CallbackQuery):
     with open("export.csv", "w", encoding="utf-8") as f:
         f.write(text)
     
-    await bot.send_document(ADMIN_ID, types.FSInputFile("export.csv"), caption="📤 Экспорт заявок")
-    await callback.message.edit_text("Экспорт отправлен в личку!", reply_markup=admin_menu())
+    await context.bot.send_document(ADMIN_ID, open("export.csv", "rb"), caption="📤 Экспорт заявок")
+    await query.message.edit_text("Экспорт отправлен в личку!", reply_markup=admin_menu())
 
-# Принять / отклонить
-@dp.callback_query(lambda c: c.data.startswith("accept_") or c.data.startswith("reject_"))
-async def handle_decision(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("⛔ Нет доступа")
+async def handle_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        return await query.answer("⛔ Нет доступа")
     
-    action, index = callback.data.split("_")
+    action, index = query.data.split("_")
     index = int(index)
     
     if index >= len(applications):
-        return await callback.answer("Заявка не найдена")
+        return await query.answer("Заявка не найдена")
     
     if action == "accept":
         applications[index]["status"] = "✅ Принят"
-        await callback.answer("Заявка принята ✅")
+        await query.answer("✅ Принято")
     else:
         applications[index]["status"] = "❌ Отклонён"
-        await callback.answer("Заявка отклонена ❌")
+        await query.answer("❌ Отклонено")
     
-    await callback.message.edit_reply_markup(reply_markup=None)
+    await query.message.edit_reply_markup(reply_markup=None)
+
+# Выход из анкеты
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Отменено", reply_markup=main_menu())
+    return ConversationHandler.END
 
 # Запуск
-async def main():
+def main():
+    app = Application.builder().token(TOKEN).build()
+    
+    # Анкета
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(apply, "apply")],
+        states={
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
+            CONTACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_contact)],
+            SKILLS: [
+                CallbackQueryHandler(skill_select, pattern="^skill_(?!done)"),
+                CallbackQueryHandler(skill_done, pattern="^skill_done$")
+            ],
+            EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_experience)],
+            ABOUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_about)]
+        },
+        fallbacks=[Command("cancel", cancel)]
+    )
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CallbackQueryHandler(about, "about"))
+    app.add_handler(CallbackQueryHandler(admin_stats, "admin_stats"))
+    app.add_handler(CallbackQueryHandler(admin_applications, "admin_apps"))
+    app.add_handler(CallbackQueryHandler(admin_users_list, "admin_users"))
+    app.add_handler(CallbackQueryHandler(admin_export, "admin_export"))
+    app.add_handler(CallbackQueryHandler(handle_decision, pattern="^(accept|reject)_"))
+    app.add_handler(conv_handler)
+    
     print("Бот запущен!")
-    await dp.start_polling(bot)
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
