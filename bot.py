@@ -1,331 +1,335 @@
-import json
-import random
 import asyncio
-from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from datetime import datetime
 
-# ---------- КОНФИГ ----------
-TOKEN = "8709046161:AAGXiDMY_Z5VeCQ6366fUyyVOhrxTkTYysE"
+TOKEN = "8786399001:AAF2GODnsIrCluHiFPH8XYC8uVMuPrDiSss"
 ADMIN_ID = 7040677455
 
-# ---------- ИНИЦИАЛИЗАЦИЯ ----------
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ---------- JSON-БАЗА ----------
-DB_FILE = "giveaways.json"
+# Хранилище пользователей
+users = {}  # {user_id: {"name": ..., "username": ..., "first_date": ...}}
+applications = []  # [{user_id, name, age, contact, skills, experience, about, date, status}]
 
-def load_data():
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"giveaways": {}, "users": {}}  # giveaways: {id: {...}, users: {user_id: {wins: 0}}}
+class Form(StatesGroup):
+    name = State()
+    age = State()
+    contact = State()
+    skills = State()
+    experience = State()
+    about = State()
 
-def save_data(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# Клавиатуры
+def main_menu():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📝 Подать заявку", callback_data="apply")
+    kb.button(text="ℹ️ О проекте", callback_data="about")
+    kb.adjust(1)
+    return kb.as_markup()
 
-# ---------- СОСТОЯНИЯ ДЛЯ СОЗДАНИЯ РОЗЫГРЫША ----------
-class GiveawayForm(StatesGroup):
-    waiting_for_text = State()
-    waiting_for_winners = State()
-    waiting_for_time = State()
+def admin_menu():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📊 Статистика", callback_data="admin_stats")
+    kb.button(text="📋 Заявки", callback_data="admin_applications")
+    kb.button(text="👥 Пользователи", callback_data="admin_users")
+    kb.button(text="📤 Экспорт", callback_data="admin_export")
+    kb.adjust(2)
+    return kb.as_markup()
 
-# ---------- КЛАВИАТУРЫ ----------
-def main_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎉 Создать розыгрыш", callback_data="create_giveaway")],
-        [InlineKeyboardButton(text="📋 Активные розыгрыши", callback_data="active_giveaways")],
-        [InlineKeyboardButton(text="🏆 Мои победы", callback_data="my_wins")]
-    ])
+def skills_keyboard():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔍 Поиск информации", callback_data="skill_search")
+    kb.button(text="✅ Проверка фактов", callback_data="skill_facts")
+    kb.button(text="✍️ Написание текстов", callback_data="skill_write")
+    kb.button(text="🪲 Тестирование", callback_data="skill_test")
+    kb.button(text="🌍 Перевод", callback_data="skill_translate")
+    kb.button(text="🎨 Дизайн", callback_data="skill_design")
+    kb.button(text="Готово ✅", callback_data="skill_done")
+    kb.adjust(2)
+    return kb.as_markup()
 
-def participate_keyboard(giveaway_id: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✨ Участвовать!", callback_data=f"join_{giveaway_id}")],
-        [InlineKeyboardButton(text="👥 Участники", callback_data=f"members_{giveaway_id}")]
-    ])
-
-# ---------- КОМАНДЫ ----------
+# Старт
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def start(message: types.Message):
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.full_name
+    
+    if user_id not in users:
+        users[user_id] = {
+            "username": username,
+            "first_date": datetime.now().strftime("%d.%m.%Y %H:%M")
+        }
+    
     await message.answer(
-        "🎁 *Бот розыгрышей*\n\n"
-        "Создавай розыгрыши, участвуй, побеждай!\n\n"
-        "Используй кнопки ниже:",
-        parse_mode="Markdown",
-        reply_markup=main_keyboard()
+        f"<b>👋 Привет, {message.from_user.full_name}!</b>\n\n"
+        "Я бот для набора в команду <b>SSB2 Archives</b>.\n"
+        "Помогай проекту выбираться из бета-версии!",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
     )
 
-@dp.message(Command("admin"))
-async def cmd_admin(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ Только для админа")
-    await message.answer(
-        "🔧 *Админ-панель*\n\n"
-        "/end [id] — завершить розыгрыш\n"
-        "/cancel [id] — отменить розыгрыш\n"
-        "/stats — статистика бота",
-        parse_mode="Markdown"
+# О проекте
+@dp.callback_query(lambda c: c.data == "about")
+async def about(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "<b>ℹ️ О проекте</b>\n\n"
+        "<b>SSB2 Archives</b> — неофициальный сайт-архив по игре Simple Sandbox 2.\n\n"
+        "<b>Что ищем:</b>\n"
+        "🔍 Тех, кто найдёт новые пасхалки и факты\n"
+        "✍️ Авторов для гайдов и описаний\n"
+        "🪲 Тестировщиков сайта\n"
+        "🌍 Переводчиков\n\n"
+        "<b>Создатель:</b> @HoFiLiOnclkc",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
     )
 
-@dp.message(Command("end"))
-async def cmd_end(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    try:
-        giveaway_id = message.text.split()[1]
-    except IndexError:
-        return await message.answer("Использование: /end [id]")
-    
-    data = load_data()
-    if giveaway_id not in data["giveaways"]:
-        return await message.answer("❌ Розыгрыш не найден")
-    
-    await finish_giveaway(giveaway_id, data)
-
-@dp.message(Command("cancel"))
-async def cmd_cancel(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    try:
-        giveaway_id = message.text.split()[1]
-    except IndexError:
-        return await message.answer("Использование: /cancel [id]")
-    
-    data = load_data()
-    if giveaway_id in data["giveaways"]:
-        del data["giveaways"][giveaway_id]
-        save_data(data)
-        await message.answer(f"✅ Розыгрыш `{giveaway_id}` отменён", parse_mode="Markdown")
-
-@dp.message(Command("stats"))
-async def cmd_stats(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    data = load_data()
-    active = len(data["giveaways"])
-    total_users = len(data["users"])
-    total_wins = sum(u.get("wins", 0) for u in data["users"].values())
-    await message.answer(
-        f"📊 *Статистика*\n\n"
-        f"Активных розыгрышей: {active}\n"
-        f"Всего пользователей: {total_users}\n"
-        f"Всего побед: {total_wins}",
-        parse_mode="Markdown"
-    )
-
-# ---------- CALLBACK-ОБРАБОТЧИКИ ----------
-@dp.callback_query(F.data == "create_giveaway")
-async def cb_create_giveaway(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("❌ Только админ может создавать розыгрыши", show_alert=True)
+# Начало анкеты
+@dp.callback_query(lambda c: c.data == "apply")
+async def apply_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.delete()
     await callback.message.answer(
-        "✏️ Введите описание розыгрыша (поддерживается Markdown):"
+        "<b>📝 Заявка в команду</b>\n\nДавай заполним анкету. Как тебя зовут (ник или имя)?",
+        parse_mode="HTML"
     )
-    await state.set_state(GiveawayForm.waiting_for_text)
-    await callback.answer()
+    await state.set_state(Form.name)
 
-@dp.message(GiveawayForm.waiting_for_text)
-async def process_text(message: types.Message, state: FSMContext):
-    await state.update_data(text=message.html_text)
-    await message.answer("🔢 Сколько победителей выбрать?")
-    await state.set_state(GiveawayForm.waiting_for_winners)
+# Имя
+@dp.message(Form.name)
+async def get_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Сколько тебе лет?")
+    await state.set_state(Form.age)
 
-@dp.message(GiveawayForm.waiting_for_winners)
-async def process_winners(message: types.Message, state: FSMContext):
-    if not message.text.isdigit() or int(message.text) < 1:
-        return await message.answer("❌ Введи число больше 0")
-    await state.update_data(winners=int(message.text))
-    await message.answer("⏱ Через сколько минут завершить розыгрыш?")
-    await state.set_state(GiveawayForm.waiting_for_time)
+# Возраст
+@dp.message(Form.age)
+async def get_age(message: types.Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await message.answer("Твой Telegram для связи (или Discord)?")
+    await state.set_state(Form.contact)
 
-@dp.message(GiveawayForm.waiting_for_time)
-async def process_time(message: types.Message, state: FSMContext):
-    if not message.text.isdigit() or int(message.text) < 1:
-        return await message.answer("❌ Введи число больше 0")
-    
-    minutes = int(message.text)
-    data = await state.get_data()
-    text = data["text"]
-    winners_count = data["winners"]
-    
-    # Генерируем ID
-    giveaway_id = f"gw_{int(datetime.now().timestamp())}"
-    end_time = datetime.now() + timedelta(minutes=minutes)
-    
-    # Сохраняем
-    db = load_data()
-    db["giveaways"][giveaway_id] = {
-        "text": text,
-        "winners_count": winners_count,
-        "end_time": end_time.isoformat(),
-        "participants": [],
-        "creator_id": message.from_user.id,
-        "finished": False
-    }
-    save_data(db)
-    
-    # Отправляем пост с розыгрышем
-    end_time_str = end_time.strftime("%d.%m.%Y %H:%M")
-    post = await message.answer(
-        f"🎉 *РОЗЫГРЫШ!*\n\n"
-        f"{text}\n\n"
-        f"🏆 Победителей: {winners_count}\n"
-        f"⏳ Завершится: {end_time_str}\n"
-        f"🆔 ID: `{giveaway_id}`",
-        parse_mode="Markdown",
-        reply_markup=participate_keyboard(giveaway_id)
+# Контакт
+@dp.message(Form.contact)
+async def get_contact(message: types.Message, state: FSMContext):
+    await state.update_data(contact=message.text)
+    await message.answer(
+        "<b>Что умеешь?</b>\nВыбери навыки (можно несколько):",
+        reply_markup=skills_keyboard(),
+        parse_mode="HTML"
     )
-    
-    await message.answer(f"✅ Розыгрыш создан! ID: `{giveaway_id}`", parse_mode="Markdown")
-    await state.clear()
-    
-    # Запускаем таймер
-    asyncio.create_task(giveaway_timer(giveaway_id, minutes * 60, post.chat.id, post.message_id))
+    await state.set_state(Form.skills)
 
-@dp.callback_query(F.data.startswith("join_"))
-async def cb_join_giveaway(callback: types.CallbackQuery):
-    giveaway_id = callback.data.split("_", 1)[1]
-    db = load_data()
-    
-    if giveaway_id not in db["giveaways"]:
-        return await callback.answer("❌ Розыгрыш не найден", show_alert=True)
-    
-    gw = db["giveaways"][giveaway_id]
-    if gw["finished"]:
-        return await callback.answer("❌ Розыгрыш завершён", show_alert=True)
-    
+# Навыки (обработка callback)
+selected_skills = {}
+
+@dp.callback_query(lambda c: c.data.startswith("skill_") and c.data != "skill_done")
+async def skill_select(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    if user_id in gw["participants"]:
-        return await callback.answer("⚠️ Ты уже участвуешь!", show_alert=True)
+    skill_map = {
+        "skill_search": "🔍 Поиск информации",
+        "skill_facts": "✅ Проверка фактов",
+        "skill_write": "✍️ Написание текстов",
+        "skill_test": "🪲 Тестирование",
+        "skill_translate": "🌍 Перевод",
+        "skill_design": "🎨 Дизайн"
+    }
     
-    gw["participants"].append(user_id)
+    skill = skill_map.get(callback.data)
+    if user_id not in selected_skills:
+        selected_skills[user_id] = []
     
-    # Обновляем статистику юзера
-    if str(user_id) not in db["users"]:
-        db["users"][str(user_id)] = {"wins": 0}
-    
-    save_data(db)
-    
-    await callback.answer("✅ Ты в игре! Жди результатов")
-    
-    # Обновляем счётчик в кнопке
-    new_markup = callback.message.reply_markup
-    for row in new_markup.inline_keyboard:
-        for btn in row:
-            if btn.callback_data.startswith("members_"):
-                btn.text = f"👥 Участники ({len(gw['participants'])})"
-    
-    await callback.message.edit_reply_markup(reply_markup=new_markup)
-
-@dp.callback_query(F.data.startswith("members_"))
-async def cb_members(callback: types.CallbackQuery):
-    giveaway_id = callback.data.split("_", 1)[1]
-    db = load_data()
-    gw = db["giveaways"].get(giveaway_id)
-    if not gw:
-        return await callback.answer("❌ Розыгрыш не найден", show_alert=True)
-    
-    count = len(gw["participants"])
-    await callback.answer(f"👥 Участников: {count}", show_alert=True)
-
-@dp.callback_query(F.data == "active_giveaways")
-async def cb_active_giveaways(callback: types.CallbackQuery):
-    db = load_data()
-    active = {k: v for k, v in db["giveaways"].items() if not v["finished"]}
-    
-    if not active:
-        return await callback.answer("Нет активных розыгрышей", show_alert=True)
-    
-    text = "📋 *Активные розыгрыши:*\n\n"
-    for gid, gw in active.items():
-        end = datetime.fromisoformat(gw["end_time"]).strftime("%H:%M")
-        text += f"• `{gid}` — {gw['participants']} уч. (до {end})\n"
-    
-    await callback.message.answer(text, parse_mode="Markdown")
-    await callback.answer()
-
-@dp.callback_query(F.data == "my_wins")
-async def cb_my_wins(callback: types.CallbackQuery):
-    db = load_data()
-    user = db["users"].get(str(callback.from_user.id), {"wins": 0})
-    wins = user["wins"]
-    await callback.answer(f"🏆 Твоих побед: {wins}", show_alert=True)
-
-# ---------- ЛОГИКА РОЗЫГРЫША ----------
-async def giveaway_timer(giveaway_id: str, seconds: int, chat_id: int, message_id: int):
-    await asyncio.sleep(seconds)
-    
-    db = load_data()
-    if giveaway_id not in db["giveaways"]:
-        return
-    
-    gw = db["giveaways"][giveaway_id]
-    if gw["finished"]:
-        return
-    
-    await finish_giveaway(giveaway_id, db, chat_id, message_id)
-
-async def finish_giveaway(giveaway_id: str, db: dict, chat_id: int = None, message_id: int = None):
-    gw = db["giveaways"][giveaway_id]
-    gw["finished"] = True
-    participants = gw["participants"]
-    winners_count = min(gw["winners_count"], len(participants))
-    
-    if participants and winners_count > 0:
-        winners = random.sample(participants, winners_count)
-        for w in winners:
-            if str(w) in db["users"]:
-                db["users"][str(w)]["wins"] += 1
+    if skill in selected_skills[user_id]:
+        selected_skills[user_id].remove(skill)
     else:
-        winners = []
+        selected_skills[user_id].append(skill)
     
-    save_data(db)
+    skills_text = ", ".join(selected_skills[user_id]) if selected_skills[user_id] else "не выбраны"
+    await callback.answer(f"Выбрано: {skills_text}")
+
+@dp.callback_query(lambda c: c.data == "skill_done")
+async def skill_done(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    skills = ", ".join(selected_skills.get(user_id, []))
+    await state.update_data(skills=skills if skills else "Не выбрано")
+    selected_skills.pop(user_id, None)
     
-    # Формируем текст результатов
-    winners_mentions = ", ".join([f"[{w}](tg://user?id={w})" for w in winners]) if winners else "Никто не участвовал 😢"
+    await callback.message.edit_text(
+        "<b>Твой опыт в Simple Sandbox 2</b>\n\nНапиши, как давно играешь и в каких режимах:",
+        parse_mode="HTML"
+    )
+    await state.set_state(Form.experience)
+
+# Опыт
+@dp.message(Form.experience)
+async def get_experience(message: types.Message, state: FSMContext):
+    await state.update_data(experience=message.text)
+    await message.answer(
+        "<b>Последний шаг!</b>\n\nРасскажи о себе: почему хочешь помогать, какие идеи есть для проекта?",
+        parse_mode="HTML"
+    )
+    await state.set_state(Form.about)
+
+# Финал
+@dp.message(Form.about)
+async def get_about(message: types.Message, state: FSMContext):
+    await state.update_data(about=message.text)
+    data = await state.get_data()
+    user_id = message.from_user.id
     
-    result_text = (
-        f"🎉 *РОЗЫГРЫШ ЗАВЕРШЁН!*\n\n"
-        f"{gw['text']}\n\n"
-        f"🏆 *Победители ({winners_count}):*\n"
-        f"{winners_mentions}\n\n"
-        f"🆔 `{giveaway_id}`"
+    application = {
+        "user_id": user_id,
+        "name": data["name"],
+        "age": data["age"],
+        "contact": data["contact"],
+        "skills": data["skills"],
+        "experience": data["experience"],
+        "about": data["about"],
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "status": "⏳ На рассмотрении"
+    }
+    applications.append(application)
+    
+    # Формируем сообщение админу
+    admin_msg = (
+        f"<b>📩 НОВАЯ ЗАЯВКА</b>\n"
+        f"├ <b>Имя:</b> {data['name']}\n"
+        f"├ <b>Возраст:</b> {data['age']}\n"
+        f"├ <b>Контакт:</b> {data['contact']}\n"
+        f"├ <b>Навыки:</b> {data['skills']}\n"
+        f"├ <b>Опыт в SSB2:</b> {data['experience']}\n"
+        f"├ <b>О себе:</b> {data['about']}\n"
+        f"└ <b>Дата:</b> {application['date']}"
     )
     
-    # Если есть chat_id — редактируем исходное сообщение
-    if chat_id and message_id:
-        try:
-            await bot.edit_message_text(
-                result_text,
-                chat_id=chat_id,
-                message_id=message_id,
-                parse_mode="Markdown"
-            )
-        except:
-            # Если не можем отредактировать — шлём новым
-            await bot.send_message(chat_id, result_text, parse_mode="Markdown")
+    # Кнопки админа
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Принять", callback_data=f"accept_{len(applications)-1}")
+    kb.button(text="❌ Отклонить", callback_data=f"reject_{len(applications)-1}")
+    kb.adjust(2)
     
-    # Уведомляем победителей в личку
-    for winner_id in winners:
-        try:
-            await bot.send_message(
-                winner_id,
-                f"🎉 Поздравляем! Ты победил в розыгрыше!\n\n{gw['text']}\n\n🆔 `{giveaway_id}`",
-                parse_mode="Markdown"
-            )
-        except:
-            pass  # Юзер мог заблокировать бота
+    await bot.send_message(ADMIN_ID, admin_msg, reply_markup=kb.as_markup(), parse_mode="HTML")
+    
+    await message.answer(
+        "<b>✅ Заявка отправлена!</b>\n\n"
+        "Я свяжусь с тобой в ближайшее время.\n"
+        "Спасибо, что хочешь помочь проекту! 🔥",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
+    )
+    await state.clear()
 
-# ---------- ЗАПУСК ----------
+# Админ-команда
+@dp.message(Command("admin"))
+async def admin(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer(
+            "<b>⚙️ Админ-панель</b>",
+            reply_markup=admin_menu(),
+            parse_mode="HTML"
+        )
+
+# Статистика
+@dp.callback_query(lambda c: c.data == "admin_stats")
+async def admin_stats(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Нет доступа")
+    
+    total_users = len(users)
+    total_apps = len(applications)
+    pending = sum(1 for a in applications if a["status"] == "⏳ На рассмотрении")
+    accepted = sum(1 for a in applications if a["status"] == "✅ Принят")
+    rejected = sum(1 for a in applications if a["status"] == "❌ Отклонён")
+    
+    await callback.message.edit_text(
+        f"<b>📊 Статистика</b>\n\n"
+        f"👥 Пользователей: <b>{total_users}</b>\n"
+        f"📩 Заявок всего: <b>{total_apps}</b>\n"
+        f"⏳ На рассмотрении: <b>{pending}</b>\n"
+        f"✅ Принято: <b>{accepted}</b>\n"
+        f"❌ Отклонено: <b>{rejected}</b>",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
+    )
+
+# Список заявок
+@dp.callback_query(lambda c: c.data == "admin_applications")
+async def admin_applications(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Нет доступа")
+    
+    if not applications:
+        return await callback.message.edit_text("Заявок пока нет.", reply_markup=admin_menu())
+    
+    text = "<b>📋 Заявки</b>\n\n"
+    for i, app in enumerate(applications[-10:]):
+        text += f"{app['status']} | {app['name']} | {app['date']}\n"
+    
+    await callback.message.edit_text(text, reply_markup=admin_menu(), parse_mode="HTML")
+
+# Список пользователей
+@dp.callback_query(lambda c: c.data == "admin_users")
+async def admin_users_list(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Нет доступа")
+    
+    if not users:
+        return await callback.message.edit_text("Пользователей пока нет.", reply_markup=admin_menu())
+    
+    text = "<b>👥 Пользователи</b>\n\n"
+    for uid, data in list(users.items())[-10:]:
+        text += f"• {data['username']} | {data['first_date']}\n"
+    
+    await callback.message.edit_text(text, reply_markup=admin_menu(), parse_mode="HTML")
+
+# Экспорт
+@dp.callback_query(lambda c: c.data == "admin_export")
+async def admin_export(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Нет доступа")
+    
+    if not applications:
+        return await callback.message.edit_text("Нечего экспортировать.", reply_markup=admin_menu())
+    
+    text = "Имя;Возраст;Контакт;Навыки;Опыт;О себе;Дата;Статус\n"
+    for app in applications:
+        text += f"{app['name']};{app['age']};{app['contact']};{app['skills']};{app['experience']};{app['about']};{app['date']};{app['status']}\n"
+    
+    with open("export.csv", "w", encoding="utf-8") as f:
+        f.write(text)
+    
+    await bot.send_document(ADMIN_ID, types.FSInputFile("export.csv"), caption="📤 Экспорт заявок")
+    await callback.message.edit_text("Экспорт отправлен в личку!", reply_markup=admin_menu())
+
+# Принять / отклонить
+@dp.callback_query(lambda c: c.data.startswith("accept_") or c.data.startswith("reject_"))
+async def handle_decision(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Нет доступа")
+    
+    action, index = callback.data.split("_")
+    index = int(index)
+    
+    if index >= len(applications):
+        return await callback.answer("Заявка не найдена")
+    
+    if action == "accept":
+        applications[index]["status"] = "✅ Принят"
+        await callback.answer("Заявка принята ✅")
+    else:
+        applications[index]["status"] = "❌ Отклонён"
+        await callback.answer("Заявка отклонена ❌")
+    
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+# Запуск
 async def main():
-    print("✅ Бот запущен!")
+    print("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
