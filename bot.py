@@ -4,7 +4,7 @@ import requests
 import logging
 import time
 from datetime import datetime
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # === НАСТРОЙКИ ===
 TOKEN = "8786399001:AAF2GODnsIrCluHiFPH8XYC8uVMuPrDiSss"
@@ -162,7 +162,7 @@ def set_reaction(chat_id, message_id, emoji):
     except Exception as e:
         logger.error(f"Ошибка реакции: {e}")
 
-# === КЛАВИАТУРЫ ===
+# === КЛАВИАТУРЫ (ТОЛЬКО ИНЛАЙН) ===
 def agreement_keyboard():
     return {
         "inline_keyboard": [
@@ -178,7 +178,8 @@ def main_menu(user_id=None):
         "inline_keyboard": [
             [{"text": "📝 Подать заявку", "callback_data": "apply", "style": "primary"}],
             [{"text": "📋 Мои заявки", "callback_data": "my_apps"}],
-            [{"text": "ℹ️ О проекте", "callback_data": "about"}]
+            [{"text": "ℹ️ О проекте", "callback_data": "about"}],
+            [{"text": "💬 Техподдержка", "callback_data": "support"}]
         ]
     }
     if user_id == ADMIN_ID:
@@ -187,18 +188,12 @@ def main_menu(user_id=None):
         )
     return keyboard
 
-def reply_keyboard():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("📝 Заявка"), KeyboardButton("📋 Мои заявки"))
-    markup.add(KeyboardButton("ℹ️ О проекте"))
-    return markup
-
 def admin_menu():
     return {
         "inline_keyboard": [
             [
                 {"text": "📊 Статистика", "callback_data": "admin_stats", "style": "primary"},
-                {"text": "📋 Заявки", "callback_data": "admin_apps"}
+                {"text": "📋 Заявки", "callback_data": "admin_apps_page_0"}
             ],
             [
                 {"text": "👥 Пользователи", "callback_data": "admin_users"},
@@ -237,13 +232,6 @@ def skills_menu():
         ]
     }
 
-def skip_keyboard(callback_data):
-    return {
-        "inline_keyboard": [
-            [{"text": "⏭️ Пропустить", "callback_data": callback_data}]
-        ]
-    }
-
 def decision_buttons(app_id):
     return {
         "inline_keyboard": [
@@ -253,7 +241,7 @@ def decision_buttons(app_id):
             ],
             [
                 {"text": "💬 Комментарий", "callback_data": f"comment_{app_id}", "style": "primary"},
-                {"text": "⬅️ Назад", "callback_data": "admin_back"}
+                {"text": "⬅️ Назад", "callback_data": "admin_apps_page_0"}
             ]
         ]
     }
@@ -272,6 +260,25 @@ def my_app_buttons(app_id, status):
         [{"text": "⬅️ Назад", "callback_data": "my_apps"}]
     )
     return keyboard
+
+def support_menu():
+    return {
+        "inline_keyboard": [
+            [{"text": "❓ Как подать заявку?", "callback_data": "sup_1"}],
+            [{"text": "❓ Что такое навыки?", "callback_data": "sup_2"}],
+            [{"text": "❓ Как отозвать заявку?", "callback_data": "sup_3"}],
+            [{"text": "❓ Кто создатель?", "callback_data": "sup_4"}],
+            [{"text": "💬 Написать владельцу", "url": CREATOR_LINK}],
+            [{"text": "⬅️ Назад", "callback_data": "back_to_main"}]
+        ]
+    }
+
+def back_to_support():
+    return {
+        "inline_keyboard": [
+            [{"text": "⬅️ Назад к вопросам", "callback_data": "support"}]
+        ]
+    }
 
 # === ОТПРАВКА СООБЩЕНИЙ ===
 def send_message(chat_id, text, keyboard=None, parse_mode="HTML"):
@@ -329,13 +336,9 @@ def start(message):
         send_message(
             message.chat.id,
             f"👋 <b>Привет, {first_name}!</b>\n\n"
-            "Я бот для набора в команду <b>SSB2 Archives</b>.",
+            "Я бот для набора в команду <b>SSB2 Archives</b>.\n"
+            "Помогай проекту выбираться из бета-версии!",
             main_menu(user_id)
-        )
-        bot.send_message(
-            message.chat.id,
-            "Используй кнопки для быстрого доступа:",
-            reply_markup=reply_keyboard()
         )
 
 @bot.message_handler(commands=['help'])
@@ -346,7 +349,16 @@ def help_cmd(message):
     send_message(
         message.chat.id,
         "<b>📚 Помощь</b>\n\n"
-        "/start — главное меню\n/help — помощь\n/cancel — отменить анкету",
+        "<b>Команды:</b>\n"
+        "/start — главное меню\n"
+        "/help — помощь\n"
+        "/cancel — отменить анкету\n\n"
+        "<b>Разделы:</b>\n"
+        "📝 Подать заявку — заполнить анкету\n"
+        "📋 Мои заявки — посмотреть статус\n"
+        "ℹ️ О проекте — информация\n"
+        "💬 Техподдержка — ответы на вопросы\n\n"
+        "<b>Создатель:</b> @HoFiLiOnclkc",
         main_menu(message.from_user.id)
     )
 
@@ -356,7 +368,11 @@ def cancel_cmd(message):
     temp_data.pop(user_id, None)
     temp_skills.pop(user_id, None)
     user_states.pop(user_id, None)
-    send_message(message.chat.id, "❌ Анкета отменена.", main_menu(user_id))
+    send_message(
+        message.chat.id,
+        "❌ Анкета отменена.",
+        main_menu(user_id)
+    )
 
 # === СОГЛАШЕНИЕ ===
 @bot.callback_query_handler(func=lambda call: call.data == "agree_yes")
@@ -369,11 +385,6 @@ def agree_yes(call):
         "✅ <b>Соглашение принято!</b>\n\nДобро пожаловать!",
         main_menu(call.from_user.id)
     )
-    bot.send_message(
-        call.message.chat.id,
-        "Используй кнопки для быстрого доступа:",
-        reply_markup=reply_keyboard()
-    )
 
 @bot.callback_query_handler(func=lambda call: call.data == "agree_no")
 def agree_no(call):
@@ -383,63 +394,83 @@ def agree_no(call):
         "Бот недоступен. Напиши /start чтобы попробовать снова."
     )
 
-# === REPLY-КЛАВИАТУРА ===
-@bot.message_handler(func=lambda m: m.text in ["📝 Заявка", "📋 Мои заявки", "ℹ️ О проекте"])
-def reply_handler(message):
-    user_id = message.from_user.id
-    
-    if not user_agreed(user_id):
-        return send_message(message.chat.id, "Сначала прими соглашение — напиши /start")
-    
-    if message.text == "📝 Заявка":
-        if has_active_app(user_id):
-            send_message(message.chat.id, "⚠️ У тебя уже есть активная заявка.", main_menu(user_id))
-        else:
-            start_application(message)
-    elif message.text == "📋 Мои заявки":
-        show_my_apps(message.chat.id, user_id)
-    elif message.text == "ℹ️ О проекте":
-        send_message(
-            message.chat.id,
-            "<b>ℹ️ О проекте</b>\n\nSSB2 Archives — неофициальный сайт-архив по игре Simple Sandbox 2.\n\nСоздатель: @HoFiLiOnclkc",
-            main_menu(user_id)
-        )
+# === ТЕХПОДДЕРЖКА ===
+@bot.callback_query_handler(func=lambda call: call.data == "support")
+def support(call):
+    edit_message(
+        call.message.chat.id, call.message.message_id,
+        "<b>💬 Техподдержка</b>\n\n"
+        "Выбери вопрос или напиши владельцу:",
+        support_menu()
+    )
 
-# === CALLBACK-ОБРАБОТЧИКИ ===
+support_answers = {
+    "sup_1": "<b>❓ Как подать заявку?</b>\n\n"
+             "Нажми кнопку «📝 Подать заявку» в главном меню и ответь на вопросы бота.\n\n"
+             "Некоторые поля (возраст, контакт, о себе) можно пропустить.",
+    "sup_2": "<b>❓ Что такое навыки?</b>\n\n"
+             "Навыки — это то, что ты умеешь и чем хочешь помогать проекту.\n\n"
+             "Например: поиск информации, тестирование, написание текстов, перевод, дизайн.",
+    "sup_3": "<b>❓ Как отозвать заявку?</b>\n\n"
+             "1. Зайди в раздел «📋 Мои заявки»\n"
+             "2. Выбери нужную заявку\n"
+             "3. Нажми «🔄 Отозвать заявку»\n\n"
+             "После отзыва ты сможешь подать новую заявку.",
+    "sup_4": "<b>❓ Кто создатель?</b>\n\n"
+             "Создатель проекта SSB2 Archives — @HoFiLiOnclkc\n\n"
+             "Ты можешь написать ему лично, нажав кнопку «💬 Написать владельцу»."
+}
+
+@bot.callback_query_handler(func=lambda call: call.data in support_answers)
+def support_answer(call):
+    edit_message(
+        call.message.chat.id, call.message.message_id,
+        support_answers[call.data],
+        back_to_support()
+    )
+
+# === О ПРОЕКТЕ ===
 @bot.callback_query_handler(func=lambda call: call.data == "about")
 def about(call):
     edit_message(
         call.message.chat.id, call.message.message_id,
-        "<b>ℹ️ О проекте</b>\n\nSSB2 Archives — неофициальный сайт-архив по игре Simple Sandbox 2.\n\nСоздатель: @HoFiLiOnclkc",
+        "<b>ℹ️ О проекте</b>\n\n"
+        "<b>SSB2 Archives</b> — неофициальный сайт-архив по игре Simple Sandbox 2.\n\n"
+        "<b>Кого ищем:</b>\n"
+        "🔍 Поиск информации\n"
+        "✅ Проверка фактов\n"
+        "✍️ Написание текстов\n"
+        "🪲 Тестирование\n"
+        "🌍 Перевод\n"
+        "🎨 Дизайн\n\n"
+        "<b>Создатель:</b> @HoFiLiOnclkc",
         main_menu(call.from_user.id)
     )
 
+# === ЗАЯВКА (НАЧАЛО) ===
 @bot.callback_query_handler(func=lambda call: call.data == "apply")
 def apply_start(call):
     user_id = call.from_user.id
     
     if not user_agreed(user_id):
-        return bot.answer_callback_query(call.id, "Сначала прими соглашение — /start")
+        return bot.answer_callback_query(call.id, "Сначала прими соглашение — напиши /start")
     
     if has_active_app(user_id):
-        return bot.answer_callback_query(call.id, "У тебя уже есть активная заявка")
+        return bot.answer_callback_query(call.id, "У тебя уже есть активная заявка. Проверь раздел «Мои заявки».")
     
     bot.delete_message(call.message.chat.id, call.message.message_id)
-    start_application(call.message)
-
-def start_application(message):
-    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    
     temp_data[user_id] = {}
     temp_skills[user_id] = []
     
     msg = bot.send_message(
-        message.chat.id if hasattr(message, 'chat') else message.chat.id,
+        call.message.chat.id,
         "<b>📝 Заявка в команду</b>\n\nКак тебя зовут (ник или имя)?",
         parse_mode="HTML"
     )
     bot.register_next_step_handler(msg, get_name)
 
-# === ШАГИ АНКЕТЫ (с кнопками Пропустить) ===
+# === ШАГИ АНКЕТЫ ===
 def get_name(message):
     user_id = message.from_user.id
     temp_data[user_id]['name'] = message.text
@@ -489,7 +520,7 @@ def skip_contact(call):
     
     send_message(
         call.message.chat.id,
-        "<b>🛠 Что умеешь?</b>\nВыбери навыки:",
+        "<b>🛠 Что умеешь?</b>\nВыбери навыки (можно несколько):",
         skills_menu()
     )
 
@@ -499,7 +530,7 @@ def get_contact(message):
     
     send_message(
         message.chat.id,
-        "<b>🛠 Что умеешь?</b>\nВыбери навыки:",
+        "<b>🛠 Что умеешь?</b>\nВыбери навыки (можно несколько):",
         skills_menu()
     )
 
@@ -581,8 +612,13 @@ def finish_application(message, user_id):
     data = temp_data[user_id]
     
     app_id = add_application(
-        user_id, data['name'], data['age'], data['contact'],
-        data['skills'], data['experience'], data['about']
+        user_id,
+        data['name'],
+        data['age'],
+        data['contact'],
+        data['skills'],
+        data['experience'],
+        data['about']
     )
     
     logger.info(f"Новая заявка #{app_id} от {data['name']} (ID: {user_id})")
@@ -593,12 +629,13 @@ def finish_application(message, user_id):
         f"├ <b>Возраст:</b> {data['age']}\n"
         f"├ <b>Контакт:</b> {data['contact']}\n"
         f"├ <b>Навыки:</b> {data['skills']}\n"
-        f"├ <b>Опыт:</b> {data['experience']}\n"
+        f"├ <b>Опыт в SSB2:</b> {data['experience']}\n"
         f"├ <b>О себе:</b> {data['about']}\n"
         f"└ <b>Пользователь:</b> @{message.from_user.username or '—'}"
     )
     
     admin_msg_id = send_message(ADMIN_ID, admin_msg, decision_buttons(app_id))
+    
     if admin_msg_id:
         set_reaction(ADMIN_ID, admin_msg_id, "👍")
     
@@ -606,47 +643,57 @@ def finish_application(message, user_id):
     
     send_message(
         message.chat.id,
-        "<b>✅ Заявка отправлена!</b>\n\nСпасибо! 🔥",
+        "<b>✅ Заявка отправлена!</b>\n\n"
+        "Я свяжусь с тобой в ближайшее время.\n"
+        "Спасибо, что хочешь помочь проекту! 🔥",
         main_menu(user_id)
     )
 
 # === МОИ ЗАЯВКИ ===
 @bot.callback_query_handler(func=lambda call: call.data == "my_apps")
 def my_apps_callback(call):
-    show_my_apps(call.message.chat.id, call.from_user.id, call.message.message_id)
-
-def show_my_apps(chat_id, user_id, message_id=None):
+    user_id = call.from_user.id
     apps = get_user_apps(user_id)
     
     if not apps:
-        text = "<b>📋 Мои заявки</b>\n\nУ тебя пока нет заявок."
-        keyboard = main_menu(user_id)
-    else:
-        status_emoji = {'pending': '⏳', 'accepted': '✅', 'rejected': '❌', 'revoked': '🔄'}
-        text = "<b>📋 Мои заявки</b>\n\n"
-        keyboard = {"inline_keyboard": []}
-        
-        for app in apps:
-            emoji = status_emoji.get(app[4], '⏳')
-            text += f"{emoji} <b>#{app[0]}</b> — {app[1]} ({app[2]}) — {app[3]}\n"
-            keyboard["inline_keyboard"].append(
-                [{"text": f"{emoji} Заявка #{app[0]}", "callback_data": f"view_app_{app[0]}"}]
-            )
-        
-        keyboard["inline_keyboard"].append(
-            [{"text": "⬅️ Главное меню", "callback_data": "back_to_main"}]
+        return edit_message(
+            call.message.chat.id,
+            call.message.message_id,
+            "<b>📋 Мои заявки</b>\n\nУ тебя пока нет заявок.",
+            main_menu(user_id)
         )
     
-    if message_id:
-        edit_message(chat_id, message_id, text, keyboard)
-    else:
-        send_message(chat_id, text, keyboard)
+    status_emoji = {
+        'pending': '⏳',
+        'accepted': '✅',
+        'rejected': '❌',
+        'revoked': '🔄'
+    }
+    
+    text = "<b>📋 Мои заявки</b>\n\n"
+    keyboard = {"inline_keyboard": []}
+    
+    for app in apps:
+        emoji = status_emoji.get(app[4], '⏳')
+        text += f"{emoji} <b>#{app[0]}</b> — {app[1]} ({app[2]}) — {app[3]}\n"
+        if app[5]:
+            text += f"   💬 <i>{app[5]}</i>\n"
+        keyboard["inline_keyboard"].append(
+            [{"text": f"{emoji} Заявка #{app[0]}", "callback_data": f"view_app_{app[0]}"}]
+        )
+    
+    keyboard["inline_keyboard"].append(
+        [{"text": "⬅️ Главное меню", "callback_data": "back_to_main"}]
+    )
+    
+    edit_message(call.message.chat.id, call.message.message_id, text, keyboard)
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_main")
 def back_to_main(call):
     edit_message(
-        call.message.chat.id, call.message.message_id,
-        "<b>Главное меню</b>",
+        call.message.chat.id,
+        call.message.message_id,
+        "<b>Главное меню</b>\n\nВыбери действие:",
         main_menu(call.from_user.id)
     )
 
@@ -658,7 +705,12 @@ def view_application(call):
     if not app:
         return bot.answer_callback_query(call.id, "Заявка не найдена")
     
-    status_emoji = {'pending': '⏳', 'accepted': '✅', 'rejected': '❌', 'revoked': '🔄'}
+    status_emoji = {
+        'pending': '⏳',
+        'accepted': '✅',
+        'rejected': '❌',
+        'revoked': '🔄'
+    }
     emoji = status_emoji.get(app[9], '⏳')
     
     text = (
@@ -667,17 +719,20 @@ def view_application(call):
         f"🎂 <b>Возраст:</b> {app[3]}\n"
         f"📞 <b>Контакт:</b> {app[4]}\n"
         f"🛠 <b>Навыки:</b> {app[5]}\n"
-        f"🎮 <b>Опыт:</b> {app[6]}\n"
+        f"🎮 <b>Опыт в SSB2:</b> {app[6]}\n"
         f"💬 <b>О себе:</b> {app[7]}\n"
         f"📅 <b>Дата:</b> {app[8]}\n"
         f"📊 <b>Статус:</b> {emoji} {app[9]}"
     )
+    
     if app[10]:
         text += f"\n💬 <b>Комментарий:</b> {app[10]}"
     
     edit_message(
-        call.message.chat.id, call.message.message_id,
-        text, my_app_buttons(app_id, app[9])
+        call.message.chat.id,
+        call.message.message_id,
+        text,
+        my_app_buttons(app_id, app[9])
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("revoke_"))
@@ -686,16 +741,22 @@ def revoke_application(call):
     app = get_app_by_id(app_id)
     
     if not app or app[9] != 'pending':
-        return bot.answer_callback_query(call.id, "Нельзя отозвать")
+        return bot.answer_callback_query(call.id, "Нельзя отозвать эту заявку")
     
     update_app_status(app_id, 'revoked')
-    logger.info(f"Заявка #{app_id} отозвана")
+    logger.info(f"Заявка #{app_id} отозвана пользователем {call.from_user.id}")
     
-    send_message(ADMIN_ID, f"🔄 <b>Заявка #{app_id} отозвана</b>\n👤 {app[2]}")
-    bot.answer_callback_query(call.id, "✅ Отозвано")
+    send_message(
+        ADMIN_ID,
+        f"🔄 <b>Заявка #{app_id} отозвана</b>\n"
+        f"👤 {app[2]} (@{call.from_user.username or '—'})"
+    )
+    
+    bot.answer_callback_query(call.id, "✅ Заявка отозвана")
     
     edit_message(
-        call.message.chat.id, call.message.message_id,
+        call.message.chat.id,
+        call.message.message_id,
         call.message.text + "\n\n<b>🔄 ЗАЯВКА ОТОЗВАНА</b>",
         main_menu(call.from_user.id)
     )
@@ -712,10 +773,14 @@ def admin_panel(call):
         call.message.chat.id,
         f"⚙️ <b>Админ-панель</b>\n\n"
         f"👥 Пользователей: <b>{users}</b>\n"
-        f"📩 Заявок: <b>{total}</b>\n"
-        f"⏳{pending} | ✅{accepted} | ❌{rejected} | 🔄{revoked}",
+        f"📩 Заявок всего: <b>{total}</b>\n"
+        f"⏳ На рассмотрении: <b>{pending}</b>\n"
+        f"✅ Принято: <b>{accepted}</b>\n"
+        f"❌ Отклонено: <b>{rejected}</b>\n"
+        f"🔄 Отозвано: <b>{revoked}</b>",
         admin_menu()
     )
+    
     bot.delete_message(call.message.chat.id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data in ["admin_stats", "admin_refresh"])
@@ -726,52 +791,127 @@ def admin_stats(call):
     users, total, pending, accepted, rejected, revoked = get_stats()
     
     edit_message(
-        call.message.chat.id, call.message.message_id,
+        call.message.chat.id,
+        call.message.message_id,
         f"<b>📊 Статистика</b>\n\n"
         f"👥 Пользователей: <b>{users}</b>\n"
-        f"📩 Заявок: <b>{total}</b>\n"
-        f"⏳{pending} | ✅{accepted} | ❌{rejected} | 🔄{revoked}",
+        f"📩 Заявок всего: <b>{total}</b>\n"
+        f"⏳ На рассмотрении: <b>{pending}</b>\n"
+        f"✅ Принято: <b>{accepted}</b>\n"
+        f"❌ Отклонено: <b>{rejected}</b>\n"
+        f"🔄 Отозвано: <b>{revoked}</b>",
         admin_menu()
     )
 
-@bot.callback_query_handler(func=lambda call: call.data == "admin_apps")
-def admin_apps_list(call):
+# === ЗАЯВКИ С ПАГИНАЦИЕЙ ===
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_apps_page_"))
+def admin_apps_page(call):
     if call.from_user.id != ADMIN_ID:
         return bot.answer_callback_query(call.id, "⛔ Нет доступа")
     
+    page = int(call.data.replace("admin_apps_page_", ""))
     apps = get_all_apps()
     
     if not apps:
-        return edit_message(call.message.chat.id, call.message.message_id, "Заявок пока нет.", admin_menu())
+        return edit_message(
+            call.message.chat.id,
+            call.message.message_id,
+            "Заявок пока нет.",
+            admin_menu()
+        )
     
-    status_emoji = {'pending': '⏳', 'accepted': '✅', 'rejected': '❌', 'revoked': '🔄'}
-    text = "<b>📋 Все заявки</b>\n\n"
+    per_page = 5
+    total_pages = max(1, (len(apps) + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
     
-    for app in apps[:15]:
+    start = page * per_page
+    end = start + per_page
+    page_apps = apps[start:end]
+    
+    status_emoji = {
+        'pending': '⏳',
+        'accepted': '✅',
+        'rejected': '❌',
+        'revoked': '🔄'
+    }
+    
+    text = f"<b>📋 Заявки (страница {page+1}/{total_pages})</b>\n\n"
+    keyboard = {"inline_keyboard": []}
+    
+    for app in page_apps:
         emoji = status_emoji.get(app[9], '⏳')
-        text += f"{emoji} <b>#{app[0]}</b> {app[2]} | {app[8]}\n"
+        text += f"{emoji} <b>#{app[0]}</b> — {app[2]} | {app[8]}\n"
+        keyboard["inline_keyboard"].append(
+            [{"text": f"{emoji} Заявка #{app[0]} — {app[2]}", "callback_data": f"admin_view_{app[0]}"}]
+        )
     
-    if len(apps) > 15:
-        text += f"\n<i>Показано 15 из {len(apps)}</i>"
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(
+            {"text": "⬅️ Назад", "callback_data": f"admin_apps_page_{page-1}"}
+        )
+    if page < total_pages - 1:
+        nav_buttons.append(
+            {"text": "Вперёд ➡️", "callback_data": f"admin_apps_page_{page+1}"}
+        )
     
-    edit_message(call.message.chat.id, call.message.message_id, text, admin_menu())
+    if nav_buttons:
+        keyboard["inline_keyboard"].append(nav_buttons)
+    
+    keyboard["inline_keyboard"].append(
+        [{"text": "⬅️ В админ-панель", "callback_data": "admin_back"}]
+    )
+    
+    if len(apps) > 5:
+        text += f"\n<i>Показано {start+1}-{min(end, len(apps))} из {len(apps)}</i>"
+    
+    edit_message(
+        call.message.chat.id,
+        call.message.message_id,
+        text,
+        keyboard
+    )
 
-@bot.callback_query_handler(func=lambda call: call.data == "admin_users")
-def admin_users_list(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_view_"))
+def admin_view_app(call):
     if call.from_user.id != ADMIN_ID:
         return bot.answer_callback_query(call.id, "⛔ Нет доступа")
     
-    users = get_all_users()
+    app_id = int(call.data.replace("admin_view_", ""))
+    app = get_app_by_id(app_id)
     
-    if not users:
-        return edit_message(call.message.chat.id, call.message.message_id, "Пользователей пока нет.", admin_menu())
+    if not app:
+        return bot.answer_callback_query(call.id, "Заявка не найдена")
     
-    text = "<b>👥 Пользователи</b>\n\n"
-    for user in users[:20]:
-        agreed_text = "✅" if user[4] else "❌"
-        text += f"{agreed_text} <b>{user[2]}</b> (@{user[1]}) — {user[3]}\n"
+    status_emoji = {
+        'pending': '⏳',
+        'accepted': '✅',
+        'rejected': '❌',
+        'revoked': '🔄'
+    }
+    emoji = status_emoji.get(app[9], '⏳')
     
-    edit_message(call.message.chat.id, call.message.message_id, text, admin_menu())
+    text = (
+        f"<b>📩 Заявка #{app[0]}</b>\n\n"
+        f"👤 <b>Имя:</b> {app[2]}\n"
+        f"🎂 <b>Возраст:</b> {app[3]}\n"
+        f"📞 <b>Контакт:</b> {app[4]}\n"
+        f"🛠 <b>Навыки:</b> {app[5]}\n"
+        f"🎮 <b>Опыт в SSB2:</b> {app[6]}\n"
+        f"💬 <b>О себе:</b> {app[7]}\n"
+        f"📅 <b>Дата:</b> {app[8]}\n"
+        f"📊 <b>Статус:</b> {emoji} {app[9]}"
+    )
+    
+    if app[10]:
+        text += f"\n💬 <b>Комментарий:</b> {app[10]}"
+    
+    edit_message(
+        call.message.chat.id,
+        call.message.message_id,
+        text,
+        decision_buttons(app_id)
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_filter_"))
 def admin_filter(call):
@@ -782,20 +922,58 @@ def admin_filter(call):
     apps = get_all_apps(filter_type)
     
     if not apps:
-        return bot.answer_callback_query(call.id, f"Нет заявок: {filter_type}")
+        return bot.answer_callback_query(call.id, f"Нет заявок со статусом «{filter_type}»")
     
     text = f"<b>📋 Заявки: {filter_type}</b>\n\n"
     for app in apps[:15]:
-        text += f"<b>#{app[0]}</b> {app[2]} | {app[8]}\n"
+        text += f"<b>#{app[0]}</b> — {app[2]} | {app[8]}\n"
     
-    edit_message(call.message.chat.id, call.message.message_id, text, admin_menu())
+    if len(apps) > 15:
+        text += f"\n<i>Показано 15 из {len(apps)}</i>"
+    
+    edit_message(
+        call.message.chat.id,
+        call.message.message_id,
+        text,
+        admin_menu()
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "admin_users")
+def admin_users_list(call):
+    if call.from_user.id != ADMIN_ID:
+        return bot.answer_callback_query(call.id, "⛔ Нет доступа")
+    
+    users = get_all_users()
+    
+    if not users:
+        return edit_message(
+            call.message.chat.id,
+            call.message.message_id,
+            "Пользователей пока нет.",
+            admin_menu()
+        )
+    
+    text = "<b>👥 Пользователи</b>\n\n"
+    for user in users[:20]:
+        agreed_icon = "✅" if user[4] else "❌"
+        text += f"{agreed_icon} <b>{user[2]}</b> (@{user[1]}) — {user[3]}\n"
+    
+    if len(users) > 20:
+        text += f"\n<i>Показано 20 из {len(users)}</i>"
+    
+    edit_message(
+        call.message.chat.id,
+        call.message.message_id,
+        text,
+        admin_menu()
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_search")
 def admin_search_prompt(call):
     if call.from_user.id != ADMIN_ID:
         return bot.answer_callback_query(call.id, "⛔ Нет доступа")
     
-    msg = bot.send_message(call.message.chat.id, "🔍 Введи ID заявки:")
+    msg = bot.send_message(call.message.chat.id, "🔍 Введи ID заявки для поиска:")
     bot.register_next_step_handler(msg, admin_search_result)
 
 def admin_search_result(message):
@@ -804,22 +982,46 @@ def admin_search_result(message):
     
     try:
         app_id = int(message.text)
-    except:
-        return send_message(message.chat.id, "❌ Неверный ID.")
+    except ValueError:
+        return send_message(message.chat.id, "❌ Неверный ID. Введи число.")
     
     app = get_app_by_id(app_id)
     
     if not app:
-        return send_message(message.chat.id, "❌ Заявка не найдена.", admin_menu())
+        return send_message(
+            message.chat.id,
+            "❌ Заявка не найдена.",
+            admin_menu()
+        )
+    
+    status_emoji = {
+        'pending': '⏳',
+        'accepted': '✅',
+        'rejected': '❌',
+        'revoked': '🔄'
+    }
+    emoji = status_emoji.get(app[9], '⏳')
     
     text = (
         f"<b>📩 Заявка #{app[0]}</b>\n\n"
-        f"👤 {app[2]}\n🎂 {app[3]}\n📞 {app[4]}\n"
-        f"🛠 {app[5]}\n🎮 {app[6]}\n💬 {app[7]}\n"
-        f"📅 {app[8]}\n📊 {app[9]}"
+        f"👤 <b>Имя:</b> {app[2]}\n"
+        f"🎂 <b>Возраст:</b> {app[3]}\n"
+        f"📞 <b>Контакт:</b> {app[4]}\n"
+        f"🛠 <b>Навыки:</b> {app[5]}\n"
+        f"🎮 <b>Опыт в SSB2:</b> {app[6]}\n"
+        f"💬 <b>О себе:</b> {app[7]}\n"
+        f"📅 <b>Дата:</b> {app[8]}\n"
+        f"📊 <b>Статус:</b> {emoji} {app[9]}"
     )
     
-    send_message(message.chat.id, text, decision_buttons(app_id))
+    if app[10]:
+        text += f"\n💬 <b>Комментарий:</b> {app[10]}"
+    
+    send_message(
+        message.chat.id,
+        text,
+        decision_buttons(app_id)
+    )
 
 # === ЭКСПОРТ ===
 @bot.callback_query_handler(func=lambda call: call.data == "admin_export")
@@ -828,6 +1030,7 @@ def admin_export_csv(call):
         return bot.answer_callback_query(call.id, "⛔ Нет доступа")
     
     apps = get_all_apps()
+    
     if not apps:
         return bot.answer_callback_query(call.id, "Нечего экспортировать")
     
@@ -839,9 +1042,13 @@ def admin_export_csv(call):
         f.write(csv_text)
     
     with open("export.csv", "rb") as f:
-        bot.send_document(ADMIN_ID, f, caption="📤 Экспорт CSV")
+        bot.send_document(
+            ADMIN_ID,
+            f,
+            caption="📤 Экспорт заявок (CSV)"
+        )
     
-    bot.answer_callback_query(call.id, "✅ Отправлен!")
+    bot.answer_callback_query(call.id, "✅ Экспорт отправлен в личку!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_export_txt")
 def admin_export_txt(call):
@@ -849,15 +1056,22 @@ def admin_export_txt(call):
         return bot.answer_callback_query(call.id, "⛔ Нет доступа")
     
     apps = get_all_apps()
+    
     if not apps:
         return bot.answer_callback_query(call.id, "Нечего экспортировать")
     
     txt_text = "=== ЭКСПОРТ ЗАЯВОК ===\n\n"
     for app in apps:
-        txt_text += f"Заявка #{app[0]}\n{'='*30}\n"
-        txt_text += f"Имя: {app[2]}\nВозраст: {app[3]}\nКонтакт: {app[4]}\n"
-        txt_text += f"Навыки: {app[5]}\nОпыт: {app[6]}\nО себе: {app[7]}\n"
-        txt_text += f"Дата: {app[8]}\nСтатус: {app[9]}\n"
+        txt_text += f"Заявка #{app[0]}\n"
+        txt_text += f"{'='*30}\n"
+        txt_text += f"Имя: {app[2]}\n"
+        txt_text += f"Возраст: {app[3]}\n"
+        txt_text += f"Контакт: {app[4]}\n"
+        txt_text += f"Навыки: {app[5]}\n"
+        txt_text += f"Опыт: {app[6]}\n"
+        txt_text += f"О себе: {app[7]}\n"
+        txt_text += f"Дата: {app[8]}\n"
+        txt_text += f"Статус: {app[9]}\n"
         if app[10]:
             txt_text += f"Комментарий: {app[10]}\n"
         txt_text += "\n"
@@ -866,9 +1080,13 @@ def admin_export_txt(call):
         f.write(txt_text)
     
     with open("export.txt", "rb") as f:
-        bot.send_document(ADMIN_ID, f, caption="📤 Экспорт TXT")
+        bot.send_document(
+            ADMIN_ID,
+            f,
+            caption="📤 Экспорт заявок (TXT)"
+        )
     
-    bot.answer_callback_query(call.id, "✅ Отправлен!")
+    bot.answer_callback_query(call.id, "✅ Экспорт отправлен в личку!")
 
 # === РАССЫЛКА ===
 @bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
@@ -885,7 +1103,12 @@ def admin_broadcast(call):
         ]
     }
     
-    edit_message(call.message.chat.id, call.message.message_id, "<b>📢 Рассылка</b>", keyboard)
+    edit_message(
+        call.message.chat.id,
+        call.message.message_id,
+        "<b>📢 Рассылка</b>\n\nВыбери, кому отправить сообщение:",
+        keyboard
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("broadcast_"))
 def broadcast_target(call):
@@ -922,12 +1145,18 @@ def send_broadcast(message):
             send_message(user[0], f"📢 <b>Рассылка</b>\n\n{text}")
             sent += 1
             time.sleep(0.5)
-        except:
+        except Exception:
             failed += 1
     
-    send_message(ADMIN_ID, f"✅ Рассылка завершена\n\nОтправлено: {sent}\nОшибок: {failed}", admin_menu())
+    send_message(
+        ADMIN_ID,
+        f"✅ <b>Рассылка завершена</b>\n\n"
+        f"📤 Отправлено: <b>{sent}</b>\n"
+        f"❌ Ошибок: <b>{failed}</b>",
+        admin_menu()
+    )
 
-# === ПРИНЯТЬ/ОТКЛОНИТЬ ===
+# === ПРИНЯТЬ/ОТКЛОНИТЬ С КОММЕНТАРИЕМ ===
 @bot.callback_query_handler(func=lambda call: call.data.startswith("comment_"))
 def admin_comment_prompt(call):
     if call.from_user.id != ADMIN_ID:
@@ -936,7 +1165,10 @@ def admin_comment_prompt(call):
     app_id = int(call.data.replace("comment_", ""))
     user_states[ADMIN_ID] = {'comment_app_id': app_id}
     
-    msg = bot.send_message(call.message.chat.id, "💬 Введи комментарий:")
+    msg = bot.send_message(
+        call.message.chat.id,
+        "💬 Введи комментарий к заявке:"
+    )
     bot.register_next_step_handler(msg, admin_comment_result)
 
 def admin_comment_result(message):
@@ -957,7 +1189,8 @@ def admin_comment_result(message):
     
     send_message(
         message.chat.id,
-        f"✅ Комментарий добавлен к заявке #{app_id}",
+        f"✅ Комментарий добавлен к заявке #{app_id}\n\n"
+        f"Теперь выбери действие:",
         decision_buttons(app_id)
     )
 
@@ -981,12 +1214,18 @@ def handle_decision(call):
         try:
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "💬 Связаться", "url": CREATOR_LINK, "style": "primary"}]
+                    [{"text": "💬 Связаться с создателем", "url": CREATOR_LINK, "style": "primary"}]
                 ]
             }
-            send_message(app[1], f"🎉 <b>Заявка #{app_id} принята!</b>", keyboard)
-        except:
-            logger.warning(f"Не удалось уведомить {app[1]}")
+            send_message(
+                app[1],
+                f"🎉 <b>Твоя заявка #{app_id} принята!</b>\n\n"
+                "Добро пожаловать в команду SSB2 Archives! 🔥\n"
+                "Свяжись с создателем по кнопке ниже:",
+                keyboard
+            )
+        except Exception:
+            logger.warning(f"Не удалось уведомить пользователя {app[1]}")
     else:
         update_app_status(app_id, "rejected", app[10])
         status_text = "❌ ОТКЛОНЕНО"
@@ -995,18 +1234,21 @@ def handle_decision(call):
         try:
             text = f"<b>Заявка #{app_id} отклонена</b>\n\n"
             if app[10]:
-                text += f"💬 {app[10]}\n\n"
-            text += "Можешь подать новую заявку."
+                text += f"💬 <i>{app[10]}</i>\n\n"
+            text += "Ты можешь подать новую заявку позже."
             send_message(app[1], text)
-        except:
-            logger.warning(f"Не удалось уведомить {app[1]}")
+        except Exception:
+            logger.warning(f"Не удалось уведомить пользователя {app[1]}")
     
     set_reaction(call.message.chat.id, call.message.message_id, reaction)
     
+    new_text = call.message.text + f"\n\n<b>{status_text}</b>"
     edit_message(
-        call.message.chat.id, call.message.message_id,
-        call.message.text + f"\n\n<b>{status_text}</b>"
+        call.message.chat.id,
+        call.message.message_id,
+        new_text
     )
+    
     bot.answer_callback_query(call.id, status_text)
     logger.info(f"Заявка #{app_id} {status_text}")
 
@@ -1018,9 +1260,12 @@ def admin_back(call):
     users, total, pending, accepted, rejected, revoked = get_stats()
     
     edit_message(
-        call.message.chat.id, call.message.message_id,
+        call.message.chat.id,
+        call.message.message_id,
         f"⚙️ <b>Админ-панель</b>\n\n"
-        f"👥 {users} | 📩 {total} | ⏳{pending} | ✅{accepted} | ❌{rejected} | 🔄{revoked}",
+        f"👥 Пользователей: <b>{users}</b>\n"
+        f"📩 Заявок: <b>{total}</b>\n"
+        f"⏳{pending} | ✅{accepted} | ❌{rejected} | 🔄{revoked}",
         admin_menu()
     )
 
@@ -1029,8 +1274,12 @@ if __name__ == "__main__":
     logger.info("✅ Бот запущен!")
     
     try:
-        send_message(ADMIN_ID, "✅ <b>Бот запущен!</b>", admin_menu())
-    except:
-        logger.warning("Не удалось уведомить админа")
+        send_message(
+            ADMIN_ID,
+            "✅ <b>Бот запущен и работает!</b>",
+            admin_menu()
+        )
+    except Exception:
+        logger.warning("Не удалось отправить уведомление админу")
     
     bot.infinity_polling()
