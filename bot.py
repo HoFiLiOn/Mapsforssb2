@@ -1,151 +1,109 @@
-import requests
-import time
-import json
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 BOT_TOKEN = "8649154788:AAFQRZ2Cwg8n73AOPu3og46GFEtSwjUpsjU"
 ADMIN_ID = 7040677455
 
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-last_update_id = 0
-
-def send_message(chat_id, text, reply_markup=None):
-    data = {"chat_id": chat_id, "text": text, "parse_mode": "MarkdownV2"}
-    if reply_markup:
-        data["reply_markup"] = json.dumps(reply_markup)
-    requests.post(f"{API_URL}/sendMessage", json=data)
-
-def send_photo(chat_id, photo_id, caption=""):
-    requests.post(f"{API_URL}/sendPhoto", json={
-        "chat_id": chat_id,
-        "photo": photo_id,
-        "caption": caption,
-        "parse_mode": "MarkdownV2"
-    })
+bot = telebot.TeleBot(BOT_TOKEN)
 
 # Цветные кнопки для админа
-def get_color_buttons(user_id):
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "✅ Принять", "callback_data": f"accept_{user_id}", "style": "success"},
-                {"text": "❌ Отклонить", "callback_data": f"reject_{user_id}", "style": "danger"}
-            ],
-            [
-                {"text": "✏️ Ответить", "callback_data": f"reply_{user_id}", "style": "primary"}
-            ]
-        ]
-    }
+def admin_buttons(user_id):
+    markup = InlineKeyboardMarkup(row_width=2)
+    
+    btn_accept = InlineKeyboardButton("Принять", callback_data=f"accept_{user_id}")
+    btn_accept.style = "success"
+    
+    btn_reject = InlineKeyboardButton("Отклонить", callback_data=f"reject_{user_id}")
+    btn_reject.style = "danger"
+    
+    btn_reply = InlineKeyboardButton("Ответить", callback_data=f"reply_{user_id}")
+    btn_reply.style = "primary"
+    
+    markup.add(btn_accept, btn_reject)
+    markup.add(btn_reply)
+    return markup
 
-# Новый стиль с таблицами и чек-листами
-def new_style_menu(chat_id):
-    text = r"""# 🎯 Бот для приёма карт
+# Главное меню
+def main_menu():
+    markup = InlineKeyboardMarkup()
+    btn = InlineKeyboardButton("Новый стиль", callback_data="show_style")
+    btn.style = "primary"
+    markup.add(btn)
+    return markup
 
-Отправь мне карту или скриншот
+# Команда старт
+@bot.message_handler(commands=['start'])
+def start(message):
+    text = """Бот для приема карт
 
-## Статус приёма
-| Тип | Приём |
-|-----|-------|
-| Карты | ✅ |
-| Скриншоты | ✅ |
-| Фото | ✅ |
+Отправь фото или скриншот, я перешлю админу."""
+    bot.send_message(message.chat.id, text, reply_markup=main_menu())
 
-## Список задач
-- [x] Принимаем карты
+# Показать новый стиль
+@bot.callback_query_handler(func=lambda call: call.data == "show_style")
+def show_style(call):
+    text = """НОВЫЙ СТИЛЬ
+
+ТАБЛИЦА:
+| Тип | Статус |
+|-----|--------|
+| Карты | Работает |
+| Фото | Работает |
+
+ЧЕК-ЛИСТ:
+- [x] Прием карт
 - [x] Цветные кнопки
-- [ ] Обновить клиент Telegram
+- [ ] Обновление
 
-<details>
-<summary>📌 Как отправить карту</summary>
+Просто отправь фото"""
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
 
-1. Нажми на скрепку
-2. Выбери фото
-3. Отправь
+# Прием фото
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    user = message.from_user
+    user_id = user.id
+    username = user.username or "нет"
+    photo_id = message.photo[-1].file_id
+    
+    caption = f"Карта от @{username} (id: {user_id})"
+    bot.send_photo(ADMIN_ID, photo_id, caption=caption)
+    bot.send_message(ADMIN_ID, "Действия:", reply_markup=admin_buttons(user_id))
+    
+    bot.send_message(message.chat.id, "Карта отправлена админу")
 
-</details>
-
-Просто отправь изображение 👇"""
-    send_message(chat_id, text, {
-        "inline_keyboard": [
-            [{"text": "📤 Отправить карту", "callback_data": "send_card"}]
-        ]
-    })
-
-def start(chat_id):
-    new_style_menu(chat_id)
-
-def send_to_admin(user_id, username, photo_id):
-    name = f"@{username}" if username else f"id{user_id}"
-    caption = f"Новая карта от {name}"
-    send_photo(ADMIN_ID, photo_id, caption)
-    send_message(ADMIN_ID, "Выбери действие:", get_color_buttons(user_id))
-
-def handle_message(msg):
-    chat_id = msg["chat"]["id"]
-    user_id = msg["from"]["id"]
-    username = msg["from"].get("username", "")
-    text = msg.get("text", "")
-
-    if text == "/start":
-        start(chat_id)
+# Обработка кнопок админа
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    if call.data == "show_style":
         return
-
-    if msg.get("photo"):
-        photo_id = msg["photo"][-1]["file_id"]
-        send_to_admin(user_id, username, photo_id)
-        send_message(chat_id, "✅ Карта отправлена админу")
-    else:
-        send_message(chat_id, "❌ Отправь фото или скриншот")
-
-def handle_callback(cb):
-    data = cb.get("data", "")
-    from_id = cb["from"]["id"]
-    msg = cb.get("message", {})
-    chat_id = msg.get("chat", {}).get("id")
-
-    if data == "send_card":
-        send_message(chat_id, "📤 Отправь фото или скриншот")
+    
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "Не для тебя")
         return
-
-    if from_id != ADMIN_ID:
-        return
-
-    if data.startswith("accept_"):
+    
+    data = call.data
+    
+    if data.startswith("accept"):
         uid = int(data.split("_")[1])
-        send_message(chat_id, "✅ Принято")
-        send_message(uid, "✅ Твоя карта принята")
-    elif data.startswith("reject_"):
+        bot.send_message(call.message.chat.id, "Принято")
+        bot.send_message(uid, "Твоя карта принята")
+    
+    elif data.startswith("reject"):
         uid = int(data.split("_")[1])
-        send_message(chat_id, "❌ Отклонено")
-        send_message(uid, "❌ Твоя карта отклонена")
-    elif data.startswith("reply_"):
+        bot.send_message(call.message.chat.id, "Отклонено")
+        bot.send_message(uid, "Твоя карта отклонена")
+    
+    elif data.startswith("reply"):
         uid = int(data.split("_")[1])
-        send_message(chat_id, "✏️ Напиши ответ, я отправлю")
-        send_message(uid, "📨 Админ скоро ответит")
+        msg = bot.send_message(call.message.chat.id, "Напиши ответ:")
+        bot.register_next_step_handler(msg, lambda m: reply_to_user(m, uid))
+    
+    bot.answer_callback_query(call.id)
 
-def main():
-    global last_update_id
-    print("Бот запущен")
+def reply_to_user(message, user_id):
+    bot.send_message(user_id, f"Ответ админа: {message.text}")
+    bot.send_message(message.chat.id, "Ответ отправлен")
 
-    while True:
-        try:
-            resp = requests.get(f"{API_URL}/getUpdates", params={
-                "offset": last_update_id + 1,
-                "timeout": 30
-            })
-            data = resp.json()
-
-            if data.get("ok") and data.get("result"):
-                for upd in data["result"]:
-                    if "callback_query" in upd:
-                        handle_callback(upd["callback_query"])
-                    elif "message" in upd:
-                        handle_message(upd["message"])
-                    last_update_id = upd["update_id"]
-
-            time.sleep(0.5)
-        except Exception as e:
-            print(f"Ошибка: {e}")
-            time.sleep(5)
-
-if __name__ == "__main__":
-    main()
+print("Бот запущен")
+bot.infinity_polling()
