@@ -2,7 +2,7 @@ import requests
 import json
 import time
 
-BOT_TOKEN = "8649154788:AAFQRZ2Cwg8n73AOPu3og46GFEtSwjUpsjU"
+BOT_TOKEN = "8649154788:AAFBV_80D5A4SuHPP7IrplC25ALSW-3GqKo"
 ADMIN_ID = 7040677455
 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
