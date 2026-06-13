@@ -1,30 +1,44 @@
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+import requests
+import time
+import json
 
 # ============= ВАШИ ДАННЫЕ =============
 BOT_TOKEN = "8649154788:AAFQRZ2Cwg8n73AOPu3og46GFEtSwjUpsjU"
 ADMIN_ID = 7040677455
 # =======================================
 
-# Включаем логирование
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+last_update_id = 0
 
-# Хранилище для ответов (в памяти)
-user_data_store = {}
+# Временное хранилище для ответов админа
+reply_storage = {}
 
-def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_ID
+def send_message(chat_id, text, reply_markup=None):
+    data = {"chat_id": chat_id, "text": text, "parse_mode": "MarkdownV2"}
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    requests.post(f"{API_URL}/sendMessage", json=data)
 
-# ============= КОМАНДЫ =============
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    text = """# 🎯 Бот-предложка
+def send_photo(chat_id, photo_id, caption=""):
+    requests.post(f"{API_URL}/sendPhoto", json={
+        "chat_id": chat_id,
+        "photo": photo_id,
+        "caption": caption,
+        "parse_mode": "MarkdownV2"
+    })
 
-Привет, готов принять твои материалы!
+def send_document(chat_id, doc_id, caption=""):
+    requests.post(f"{API_URL}/sendDocument", json={
+        "chat_id": chat_id,
+        "document": doc_id,
+        "caption": caption,
+        "parse_mode": "MarkdownV2"
+    })
+
+def send_start_menu(chat_id):
+    text = """# 🎯 Бот\-предложка
+
+Привет\! Готов принять твои материалы\.
 
 ## Что можно отправлять:
 | Тип | Статус |
@@ -32,155 +46,163 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 | Текст | ✅ |
 | Фото | ✅ |
 | Файлы | ✅ |
-| Видео | ✅ |
 
 ## Как это работает:
-1. Отправляешь мне файл/текст
+1. Отправляешь файл или текст
 2. Админ получает уведомление
 3. Админ может ответить тебе
 
-- [x] Анонимно
-- [x] 24/7
-- [x] Быстро
+\- \[x\] Анонимно
+\- \[x\] 24/7
+\- \[x\] Быстро
 
 Просто отправь сообщение 👇"""
+    send_message(chat_id, text)
+
+def escape_md(text):
+    """Экранирование спецсимволов для MarkdownV2"""
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+def process_message(update):
+    global last_update_id
+    last_update_id = update.get("update_id", last_update_id)
     
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = """**📖 Помощь**
-
-Отправь любой файл, фото или текст — всё дойдёт до админа.
-
-**Статусы:**
-`✅` — принято
-`⏳` — в обработке
-`❌` — отклонено"""
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
-
-# ============= ПРИЕМ ОТ ПОЛЬЗОВАТЕЛЕЙ =============
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    
-    # Если админ отвечает пользователю
-    if is_admin(user.id) and context.user_data.get("reply_to"):
-        user_id = context.user_data["reply_to"]
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"📨 **Ответ админа:**\n\n{update.message.text}",
-            parse_mode="MarkdownV2"
-        )
-        await update.message.reply_text("✅ Ответ отправлен!")
-        del context.user_data["reply_to"]
+    message = update.get("message")
+    if not message:
         return
     
-    # Обычный пользователь → пересылаем админу
-    if not is_admin(user.id):
-        msg = f"""# 📬 Новое сообщение
-
-| Поле | Значение |
-|------|----------|
-| 👤 | @{user.username or 'нет username'} |
-| 🆔 | `{user.id}` |
-| 📝 | {update.message.text[:200]} |
-
-- [ ] Требует ответа
-"""
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✏️ Ответить", callback_data=f"reply_{user.id}")]
-        ])
+    chat_id = message["chat"]["id"]
+    user = message.get("from", {})
+    user_id = user.get("id")
+    username = user.get("username", "нет")
+    
+    # Обработка ответа от админа
+    if user_id == ADMIN_ID and chat_id == ADMIN_ID and reply_storage.get("waiting_for_reply"):
+        target_user = reply_storage.pop("waiting_for_reply", None)
+        if target_user and message.get("text"):
+            reply_text = escape_md(message["text"])
+            send_message(target_user, f"📨 **Ответ админа:**\n\n{reply_text}")
+            send_message(ADMIN_ID, "✅ Ответ отправлен пользователю\!")
+        return
+    
+    # Команда /start
+    if message.get("text") == "/start":
+        send_start_menu(chat_id)
+        return
+    
+    # Если сообщение от обычного пользователя (не админа)
+    if user_id != ADMIN_ID:
+        username_str = f"@{username}" if username != "нет" else "нет username"
+        user_text = message.get("text", "")
         
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=msg,
-            parse_mode="MarkdownV2",
-            reply_markup=keyboard
-        )
-        await update.message.reply_text("✅ Отправлено админу!")
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    photo = update.message.photo[-1]
-    caption = update.message.caption or "Без описания"
-    
-    msg = f"""# 🖼️ Новое фото
+        if user_text:
+            # Текстовое сообщение
+            admin_msg = f"""# 📬 Новое сообщение
 
 | Поле | Значение |
 |------|----------|
-| 👤 | @{user.username or 'нет'} |
-| 🆔 | `{user.id}` |
-| 📝 | {caption} |
-"""
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Ответить", callback_data=f"reply_{user.id}")]
-    ])
-    
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo.file_id,
-        caption=msg,
-        parse_mode="MarkdownV2",
-        reply_markup=keyboard
-    )
-    await update.message.reply_text("✅ Фото отправлено!")
+| 👤 | {username_str} |
+| 🆔 | `{user_id}` |
+| 📝 | {escape_md(user_text[:200])} |
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    doc = update.message.document
-    caption = update.message.caption or "Без описания"
-    
-    msg = f"""# 📎 Новый файл
+\- \[ \] Требует ответа"""
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "✏️ Ответить", "callback_data": f"reply_{user_id}"}]
+                ]
+            }
+            send_message(ADMIN_ID, admin_msg, keyboard)
+            send_message(chat_id, "✅ Отправлено админу\!")
+        
+        elif message.get("photo"):
+            # Фото
+            photo = message["photo"][-1]
+            photo_id = photo["file_id"]
+            caption = message.get("caption", "")
+            
+            admin_msg = f"""# 🖼️ Новое фото
 
 | Поле | Значение |
 |------|----------|
-| 👤 | @{user.username or 'нет'} |
-| 🆔 | `{user.id}` |
-| 📄 | {doc.file_name} |
-| 📝 | {caption} |
-"""
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Ответить", callback_data=f"reply_{user.id}")]
-    ])
-    
-    await context.bot.send_document(
-        chat_id=ADMIN_ID,
-        document=doc.file_id,
-        caption=msg,
-        parse_mode="MarkdownV2",
-        reply_markup=keyboard
-    )
-    await update.message.reply_text("✅ Файл отправлен!")
+| 👤 | {username_str} |
+| 🆔 | `{user_id}` |
+| 📝 | {escape_md(caption[:100])} |"""
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "✏️ Ответить", "callback_data": f"reply_{user_id}"}]
+                ]
+            }
+            send_photo(ADMIN_ID, photo_id, admin_msg)
+            send_message(ADMIN_ID, "", keyboard)  # Отправляем кнопки отдельно
+            send_message(chat_id, "✅ Фото отправлено\!")
+        
+        elif message.get("document"):
+            # Документ
+            doc = message["document"]
+            doc_id = doc["file_id"]
+            file_name = doc.get("file_name", "файл")
+            caption = message.get("caption", "")
+            
+            admin_msg = f"""# 📎 Новый файл
 
-# ============= КНОПКИ АДМИНА =============
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data.startswith("reply_"):
-        user_id = int(query.data.split("_")[1])
-        context.user_data["reply_to"] = user_id
-        await query.message.reply_text("✏️ **Введите ответ для пользователя:**", parse_mode="MarkdownV2")
-        await query.edit_message_caption(
-            caption=query.message.caption + "\n\n✏️ *Ожидает ответа...*",
-            parse_mode="MarkdownV2"
-        )
+| Поле | Значение |
+|------|----------|
+| 👤 | {username_str} |
+| 🆔 | `{user_id}` |
+| 📄 | {escape_md(file_name)} |
+| 📝 | {escape_md(caption[:100])} |"""
+            
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "✏️ Ответить", "callback_data": f"reply_{user_id}"}]
+                ]
+            }
+            send_document(ADMIN_ID, doc_id, admin_msg)
+            send_message(ADMIN_ID, "", keyboard)
+            send_message(chat_id, "✅ Файл отправлен\!")
+        
+        else:
+            send_message(chat_id, "❌ Неподдерживаемый тип сообщения")
 
-# ============= ЗАПУСК =============
+def process_callback(callback_query):
+    data = callback_query.get("data", "")
+    message = callback_query.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    
+    if data.startswith("reply_"):
+        user_id = int(data.split("_")[1])
+        reply_storage["waiting_for_reply"] = user_id
+        send_message(chat_id, "✏️ **Введите ответ для пользователя:**", parse_mode="MarkdownV2")
+
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    
-    # Команды
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    
-    # Обработчики
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    
+    global last_update_id
     print("✅ Бот запущен!")
-    app.run_polling()
+    
+    while True:
+        try:
+            response = requests.get(f"{API_URL}/getUpdates", params={
+                "offset": last_update_id + 1,
+                "timeout": 30
+            })
+            data = response.json()
+            
+            if data.get("ok") and data.get("result"):
+                for update in data["result"]:
+                    if "callback_query" in update:
+                        process_callback(update["callback_query"])
+                    else:
+                        process_message(update)
+                    last_update_id = update["update_id"]
+            
+            time.sleep(1)
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
